@@ -5,9 +5,11 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
 
 const { DatabaseSync } = require('node:sqlite');
-const dbPath = process.env.SESSION_BRIDGE_STORE
-  ? path.join(process.env.SESSION_BRIDGE_STORE, 'sessions.db')
-  : path.join(process.env.USERPROFILE, '.session-bridge', 'sessions.db');
+const storeRoot =
+  process.env.SESSION_LOOM_STORE ??
+  process.env.SESSION_BRIDGE_STORE ??
+  path.join(process.env.USERPROFILE, '.session-loom');
+const dbPath = path.join(storeRoot, 'sessions.db');
 const db = new DatabaseSync(dbPath);
 const row = db
   .prepare('SELECT payload FROM sessions WHERE session_id = ?')

@@ -15,7 +15,7 @@ export function writeCodexSession(session: CanonicalSession): string {
         originator: 'codex-tui',
         source: 'cli',
         thread_source: 'user',
-        cli_version: 'session-bridge',
+        cli_version: 'session-loom',
         history_mode: 'legacy',
       },
     }),

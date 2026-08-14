@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'no
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { sessionStoreRoot } from '../paths';
 import { deserialize, serialize } from '../canonical/serialize';
 import type { CanonicalSession, SourceTool } from '../canonical/types';
 
 let db: DatabaseSync | undefined;
 
 function storeDir(): string {
-  return process.env.SESSION_BRIDGE_STORE ?? join(homedir(), '.session-bridge');
+  return sessionStoreRoot();
 }
 
 function getDb(): DatabaseSync {

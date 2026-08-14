@@ -8,3 +8,11 @@ export function codexSessionsRoot(): string {
 export function claudeSessionsRoot(): string {
   return process.env.CLAUDE_ROOT ?? join(homedir(), '.claude', 'projects');
 }
+
+export function sessionStoreRoot(): string {
+  return (
+    process.env.SESSION_LOOM_STORE ??
+    process.env.SESSION_BRIDGE_STORE ??
+    join(homedir(), '.session-loom')
+  );
+}

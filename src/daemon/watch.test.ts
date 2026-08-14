@@ -12,7 +12,7 @@ let watcher: WatchState | undefined;
 beforeEach(() => {
   fixture = mkdtempSync(join(tmpdir(), 'sb-fixture-'));
   store = mkdtempSync(join(tmpdir(), 'sb-store-'));
-  process.env.SESSION_BRIDGE_STORE = store;
+  process.env.SESSION_LOOM_STORE = store;
 });
 
 afterEach(() => {

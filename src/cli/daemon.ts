@@ -4,9 +4,9 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startWatcher } from '../daemon/watch';
-import { claudeSessionsRoot, codexSessionsRoot } from '../paths';
+import { claudeSessionsRoot, codexSessionsRoot, sessionStoreRoot } from '../paths';
 
-const pidFile = join(homedir(), '.session-bridge', 'daemon.pid');
+const pidFile = join(sessionStoreRoot(), 'daemon.pid');
 
 export function daemonCommand(args: string[]): void {
   switch (args[0] ?? 'run') {
@@ -29,7 +29,7 @@ export function daemonCommand(args: string[]): void {
 }
 
 function runForeground(): void {
-  console.log('session-bridge daemon running');
+  console.log('session-loom daemon running');
   startWatcher([
     { sourceTool: 'codex', root: codexSessionsRoot() },
     { sourceTool: 'claude', root: claudeSessionsRoot() },

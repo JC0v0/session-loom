@@ -45,13 +45,15 @@ struct DaemonState {
 }
 
 fn store_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("SESSION_BRIDGE_STORE") {
+    if let Ok(dir) =
+        std::env::var("SESSION_LOOM_STORE").or_else(|_| std::env::var("SESSION_BRIDGE_STORE"))
+    {
         return PathBuf::from(dir);
     }
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".session-bridge")
+    PathBuf::from(home).join(".session-loom")
 }
 
 fn db_file() -> PathBuf {

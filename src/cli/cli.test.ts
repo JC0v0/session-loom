@@ -14,7 +14,7 @@ beforeEach(() => {
   store = mkdtempSync(join(tmpdir(), 'sb-store-'));
   codexRoot = mkdtempSync(join(tmpdir(), 'sb-codex-'));
   claudeRoot = mkdtempSync(join(tmpdir(), 'sb-claude-'));
-  process.env.SESSION_BRIDGE_STORE = store;
+  process.env.SESSION_LOOM_STORE = store;
   process.env.CODEX_SESSIONS_ROOT = codexRoot;
   process.env.CLAUDE_ROOT = claudeRoot;
 });
