@@ -16,7 +16,8 @@
 - `npm test` runs all Vitest tests once.
 - `npm run typecheck` checks strict TypeScript without emitting files.
 - `npm run bundle:cli` creates `dist-cli/cli.mjs`, used by the packaged desktop app.
-- `npm run dist` builds the Windows application and NSIS installer.
+- `npm run dist` builds the desktop application for the current platform. On Windows it creates the NSIS installer.
+- `npm run dist:mac` builds the macOS application bundle and DMG installer.
 - `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` validates Rust formatting.
 
 ## Coding Style & Naming Conventions

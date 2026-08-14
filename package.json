@@ -12,6 +12,7 @@
     "desktop": "tauri dev",
     "bundle:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-cli/cli.mjs --log-level=warning",
     "dist": "tauri build",
+    "dist:mac": "tauri build --bundles app,dmg",
     "typecheck": "tsc",
     "test": "vitest run"
   },
