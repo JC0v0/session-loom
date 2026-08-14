@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "description": "Mirror Claude Code and Codex sessions into a durable canonical format and restore them into either tool.",
+  "main": "electron/main.mjs",
   "bin": {
     "ssl": "./bin/ssl.js"
   },
   "scripts": {
     "start": "tsx src/cli.ts",
+    "desktop": "electron .",
     "typecheck": "tsc",
     "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "electron": "^43.4.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
