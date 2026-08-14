@@ -76,6 +76,7 @@ export function parseCodexSession(jsonl: string): CanonicalSession {
         .filter((block) => block.type === 'input_text' || block.type === 'output_text')
         .map((block) => block.text ?? '')
         .join('');
+      if (item.role === 'user' && isInjectedContext(text)) continue;
       messages.push({ role: item.role, text, toolCalls: [] });
     }
   }
@@ -91,4 +92,10 @@ export function parseCodexSession(jsonl: string): CanonicalSession {
     updatedAt,
     messages,
   };
+}
+
+function isInjectedContext(text: string): boolean {
+  // Codex's IDE injects context blocks (e.g. <recommended_plugins>, <in-app-browser-context>)
+  // as user-role messages; they are scaffolding, not conversation.
+  return text.trimStart().startsWith('<');
 }

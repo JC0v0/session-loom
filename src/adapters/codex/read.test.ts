@@ -26,4 +26,17 @@ describe('codex read', () => {
     expect(assistant.toolCalls).toHaveLength(1);
     expect(assistant.toolCalls[0]).toMatchObject({ id: 'c1', name: 'shell', input: { cmd: 'ls' }, output: 'file.txt' });
   });
+
+  it('drops IDE-injected user context and keeps the real question first', () => {
+    const withInjected = [
+      JSON.stringify({ timestamp: '2026-01-01T00:00:00.000Z', type: 'session_meta', payload: { session_id: 's9', cwd: 'C:\\proj', timestamp: '2026-01-01T00:00:00.000Z' } }),
+      JSON.stringify({ timestamp: '2026-01-01T00:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<recommended_plugins>\nHere is a list of plugins' }] } }),
+      JSON.stringify({ timestamp: '2026-01-01T00:00:02.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '\n<in-app-browser-context source="ambient">auto' }] } }),
+      JSON.stringify({ timestamp: '2026-01-01T00:00:03.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '帮我做这个' }] } }),
+    ].join('\n');
+    const session = parseCodexSession(withInjected);
+    const userMessages = session.messages.filter((m) => m.role === 'user');
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0].text).toBe('帮我做这个');
+  });
 });
