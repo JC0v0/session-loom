@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
 <title>session-loom</title>
+<link rel="icon" href="../assets/icon.png" />
 <style>
   :root {
     --bg: #0A0A0D;
@@ -46,8 +47,7 @@
     border-bottom: 1px solid var(--border);
   }
   .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: .2px; }
-  .brand .loom { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center;
-    background: linear-gradient(135deg, #8B5CF6, #6366F1); color: #FFFFFF; font-size: 13px; font-weight: 800; }
+  .brand .loom { width: 24px; height: 24px; border-radius: 7px; }
   .spacer { flex: 1; }
   .count-pill { color: var(--text-dim); font-size: 12px; }
   .daemon-pill {
@@ -179,7 +179,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="loom">SL</span> session-loom</div>
+    <div class="brand"><img class="loom" src="../assets/icon.png" alt="" /> session-loom</div>
     <div class="spacer"></div>
     <span class="count-pill" id="countPill"></span>
     <div class="daemon-pill" id="daemonPill" title="点击启动/停止镜像守护进程">

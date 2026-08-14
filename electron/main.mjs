@@ -164,6 +164,7 @@ function createWindow() {
     backgroundColor: '#0F172A',
     autoHideMenuBar: true,
     title: 'session-loom',
+    icon: join(electronDir, '..', 'assets', 'icon.png'),
     webPreferences: {
       preload: join(electronDir, 'preload.cjs'),
       contextIsolation: true,
