@@ -24,4 +24,13 @@ describe('codex write', () => {
     expect(types).toContain('function_call');
     expect(types).toContain('function_call_output');
   });
+
+  it('marks the session as an interactive CLI session', () => {
+    const first = JSON.parse(writeCodexSession(session).trim().split('\n')[0]) as { payload?: Record<string, unknown> };
+    expect(first.payload).toMatchObject({
+      originator: 'codex-tui',
+      source: 'cli',
+      thread_source: 'user',
+    });
+  });
 });

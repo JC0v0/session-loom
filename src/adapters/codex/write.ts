@@ -12,7 +12,11 @@ export function writeCodexSession(session: CanonicalSession): string {
         id: session.sessionId,
         timestamp: session.createdAt,
         cwd: session.cwd,
+        originator: 'codex-tui',
+        source: 'cli',
+        thread_source: 'user',
         cli_version: 'session-bridge',
+        history_mode: 'legacy',
       },
     }),
   );
