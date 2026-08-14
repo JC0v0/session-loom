@@ -115,6 +115,8 @@
   .badge.claude { color: var(--claude); background: rgba(253,186,116,.08); border: 1px solid rgba(253,186,116,.22); }
 
   #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #detailBody { display: none; }
+  #detailBody.open { display: flex; flex: 1; flex-direction: column; min-height: 0; }
   .detail-head { padding: 16px 20px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
   .detail-head h1 { font-size: 17px; font-weight: 700; line-height: 1.4; word-break: break-word; }
   .detail-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; color: var(--text-dim); font-size: 12px; }
@@ -207,7 +209,7 @@
           从左侧选择一个会话查看对话内容<br />选中后可将其恢复到 Claude Code 或 Codex 继续对话
         </div>
       </div>
-      <div id="detailBody" style="display:none; flex:1; flex-direction:column; min-height:0;"></div>
+      <div id="detailBody"></div>
     </section>
   </main>
 
@@ -303,7 +305,7 @@
   function clearDetail() {
     state.selectedId = null;
     emptyEl.style.display = 'grid';
-    bodyEl.style.display = 'none';
+    bodyEl.classList.remove('open');
     bodyEl.innerHTML = '';
     renderList();
   }
@@ -334,7 +336,7 @@
 
   function renderDetail(session) {
     emptyEl.style.display = 'none';
-    bodyEl.style.display = 'flex';
+    bodyEl.classList.add('open');
     const toolLabel = session.sourceTool === 'codex' ? 'Codex' : 'Claude';
     const otherTool = session.sourceTool === 'codex' ? 'claude' : 'codex';
     const otherLabel = session.sourceTool === 'codex' ? 'Claude' : 'Codex';
