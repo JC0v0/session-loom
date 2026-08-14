@@ -70,9 +70,9 @@ function runList(args: string[]): void {
 }
 
 function printHelp(): void {
-  console.log('session-bridge - mirror coding-agent sessions into a canonical format');
+  console.log('session-loom - mirror coding-agent sessions into a canonical format');
   console.log();
-  console.log('Usage: session-bridge <command> [options]');
+  console.log('Usage: ssl <command> [options]');
   console.log();
   console.log('Commands:');
   console.log('  daemon [start|stop|status]  Run the background mirror (default: start)');

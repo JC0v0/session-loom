@@ -1,5 +1,5 @@
 ---
-title: Session Bridge - Plan
+title: Session Loom - Plan
 type: feat
 date: 2026-08-14
 topic: session-bridge
@@ -9,7 +9,7 @@ product_contract_source: ce-brainstorm
 execution: code
 ---
 
-# Session Bridge - Plan
+# Session Loom - Plan
 
 ## Goal Capsule
 
