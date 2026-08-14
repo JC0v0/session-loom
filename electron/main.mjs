@@ -45,7 +45,7 @@ function sessionTitle(session) {
 
 function runCli(args) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', join(projectRoot, 'src', 'cli.ts'), ...args], {
+    const child = spawn(process.execPath, cliArgs(args), {
       cwd: projectRoot,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     });
@@ -63,6 +63,14 @@ function runCli(args) {
       resolve({ ok: code === 0, message: message || `exit code ${code}` });
     });
   });
+}
+
+function cliArgs(args) {
+  const bundled = join(projectRoot, 'dist-cli', 'cli.mjs');
+  const base = existsSync(bundled)
+    ? [bundled]
+    : ['--import', 'tsx', join(projectRoot, 'src', 'cli.ts')];
+  return [...base, ...args];
 }
 
 function daemonState() {
@@ -140,16 +148,12 @@ ipcMain.handle('daemon:toggle', () => {
     rmSync(pidFile, { force: true });
     return { running: false };
   }
-  const child = spawn(
-    process.execPath,
-    ['--import', 'tsx', join(projectRoot, 'src', 'cli.ts'), 'daemon', 'run'],
-    {
-      cwd: projectRoot,
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    },
-  );
+  const child = spawn(process.execPath, cliArgs(['daemon', 'run']), {
+    cwd: projectRoot,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
   child.unref();
   writeFileSync(pidFile, String(child.pid), 'utf8');
   return { running: true, pid: child.pid };
@@ -172,7 +176,7 @@ function createWindow() {
       sandbox: true,
     },
   });
-  win.loadFile(join(electronDir, 'index.html'));
+  win.loadFile(join(electronDir, '..', 'ui', 'index.html'));
 }
 
 app.whenReady().then(() => {

@@ -1,0 +1,19 @@
+*** Begin Patch
+*** Update File: src-tauri/tauri.conf.json
+@@
+     "icon": ["icons/icon.png", "icons/icon.ico"],
+     "resources": ["../dist-cli"],
+     "category": "DeveloperTool",
+-    "nsis": {
+-      "installMode": "currentUser",
+-      "languages": ["SimpChinese", "English"]
+-    }
++    "windows": {
++      "nsis": {
++        "installMode": "currentUser",
++        "languages": ["SimpChinese", "English"]
++      }
++    }
+   }
+ }
+*** End Patch

@@ -11,17 +11,19 @@
   "scripts": {
     "start": "tsx src/cli.ts",
     "desktop": "electron .",
-    "dist": "electron-builder",
+    "desktop:tauri": "tauri dev",
+    "bundle:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-cli/cli.mjs --log-level=warning",
+    "dist": "npm run bundle:cli && electron-builder",
+    "dist:tauri": "tauri build",
     "typecheck": "tsc",
     "test": "vitest run"
   },
-  "dependencies": {
-    "tsx": "^4.20.0"
-  },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^24.0.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.0.12",
+    "tsx": "^4.20.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   },
@@ -29,9 +31,15 @@
     "appId": "com.sessionloom.app",
     "productName": "session-loom",
     "asar": false,
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN"
+    ],
     "files": [
       "electron/**",
       "src/**",
+      "dist-cli/**",
       "assets/**",
       "package.json"
     ],

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
 <title>session-loom</title>
-<link rel="icon" href="../assets/icon.png" />
+<link rel="icon" href="icon.png" />
 <style>
   :root {
     --bg: #0A0A0D;
@@ -179,7 +179,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><img class="loom" src="../assets/icon.png" alt="" /> session-loom</div>
+    <div class="brand"><img class="loom" src="icon.png" alt="" /> session-loom</div>
     <div class="spacer"></div>
     <span class="count-pill" id="countPill"></span>
     <div class="daemon-pill" id="daemonPill" title="点击启动/停止镜像守护进程">
@@ -214,7 +214,17 @@
   <div id="toast"></div>
 
 <script>
-  const api = window.sessionApi;
+  const api = window.sessionApi || (() => {
+      const { invoke } = window.__TAURI__.core;
+      return {
+        list: (filter) => invoke('sessions_list', { filter }),
+        get: (id) => invoke('sessions_get', { sessionId: id }),
+        remove: (id) => invoke('sessions_delete', { sessionId: id }),
+        restore: (id, target) => invoke('sessions_restore', { sessionId: id, target }),
+        daemonStatus: () => invoke('daemon_status'),
+        daemonToggle: () => invoke('daemon_toggle'),
+      };
+    })();
   const state = { tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '' };
 
   const $ = (id) => document.getElementById(id);
