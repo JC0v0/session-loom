@@ -7,23 +7,25 @@
 <link rel="icon" href="icon.png" />
 <style>
 :root {
-  --bg: #0B0B0C;
-  --bg-soft: #0F0F11;
-  --panel: #151517;
-  --panel-2: #1C1C1F;
-  --border: rgba(255, 255, 255, .07);
-  --border-strong: rgba(255, 255, 255, .15);
-  --text: #EDECE9;
-  --text-dim: #9C9B95;
-  --text-faint: #62615C;
-  --accent: #E5A04C;
-  --accent-soft: rgba(229, 160, 76, .12);
-  --accent-strong: #F0B26A;
-  --accent-ink: #201503;
-  --ok: #4CC38A;
-  --codex: #7DD3FC;
-  --claude: #F0A171;
-  --danger: #F08C8C;
+  --bg: #F6F4EF;
+  --bg-soft: #FFFFFF;
+  --panel: #FFFFFF;
+  --panel-2: #EFECE3;
+  --border: rgba(31, 30, 27, .10);
+  --border-strong: rgba(31, 30, 27, .20);
+  --text: #24231F;
+  --text-dim: #6E6A60;
+  --text-faint: #A8A394;
+  --accent: #BF4E24;
+  --accent-soft: rgba(191, 78, 36, .10);
+  --accent-strong: #A83F1B;
+  --accent-ink: #FFFFFF;
+  --ok: #1F9D66;
+  --codex: #0270C7;
+  --claude: #C2410C;
+  --danger: #D93F3F;
+  --scroll: rgba(31, 30, 27, .16);
+  --scroll-hover: rgba(31, 30, 27, .26);
   --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --radius: 10px;
   --ease: 160ms cubic-bezier(.4, 0, .2, 1);
@@ -44,11 +46,11 @@ body {
   overflow: hidden;
 }
 
-::selection { background: rgba(229, 160, 76, .28); }
+::selection { background: rgba(191, 78, 36, .18); }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .10); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .18); border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 header {
@@ -71,8 +73,8 @@ header {
   transition: border-color var(--ease), color var(--ease), background var(--ease);
 }
 .daemon-pill:hover { border-color: var(--border-strong); color: var(--text); }
-.daemon-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #4A4A45; transition: background var(--ease), box-shadow var(--ease); }
-.daemon-pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(76, 195, 138, .8); }
+.daemon-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #C5C0B4; transition: background var(--ease), box-shadow var(--ease); }
+.daemon-pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(31, 157, 102, .6); }
 .daemon-pill.on { color: var(--text); }
 
 main { display: grid; grid-template-columns: 336px 1fr; min-height: 0; }
@@ -92,7 +94,7 @@ aside {
   transition: border-color var(--ease);
 }
 #search::placeholder { color: var(--text-faint); }
-#search:focus { border-color: rgba(229, 160, 76, .55); }
+#search:focus { border-color: rgba(191, 78, 36, .5); }
 
 .tabs {
   display: flex; gap: 2px;
@@ -107,7 +109,7 @@ aside {
   transition: background var(--ease), color var(--ease);
 }
 .tab:hover { color: var(--text); }
-.tab.active { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+.tab.active { background: var(--bg-soft); color: var(--text); box-shadow: 0 1px 2px rgba(31, 30, 27, .12); }
 
 #sessionList { flex: 1; overflow-y: auto; padding: 4px 8px 14px; }
 .card {
@@ -117,8 +119,8 @@ aside {
   border-radius: var(--radius); cursor: pointer;
   transition: background var(--ease), border-color var(--ease);
 }
-.card:hover { background: var(--panel); border-color: var(--border); }
-.card.active { background: var(--accent-soft); border-color: rgba(229, 160, 76, .35); }
+.card:hover { background: var(--bg); border-color: var(--border); }
+.card.active { background: var(--accent-soft); border-color: rgba(191, 78, 36, .35); }
 .card.active::before {
   content: ''; position: absolute; left: 0; top: 10px; bottom: 10px;
   width: 3px; border-radius: 2px; background: var(--accent);
@@ -141,8 +143,8 @@ aside {
   padding: 1px 7px; border-radius: 5px;
   font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
 }
-.badge.codex { color: var(--codex); background: rgba(125, 211, 252, .10); }
-.badge.claude { color: var(--claude); background: rgba(240, 161, 113, .10); }
+.badge.codex { color: var(--codex); background: rgba(2, 112, 199, .09); }
+.badge.claude { color: var(--claude); background: rgba(194, 65, 12, .09); }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }
@@ -165,10 +167,10 @@ aside {
 }
 .btn:hover { background: var(--panel-2); }
 .btn:disabled { opacity: .45; cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 2px rgba(31, 30, 27, .18); }
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
-.btn.danger { border-color: rgba(240, 140, 140, .35); color: var(--danger); }
-.btn.danger:hover { background: rgba(240, 140, 140, .10); border-color: rgba(240, 140, 140, .55); }
+.btn.danger { border-color: rgba(217, 63, 63, .4); color: var(--danger); }
+.btn.danger:hover { background: rgba(217, 63, 63, .08); border-color: rgba(217, 63, 63, .6); }
 
 #conversation { flex: 1; overflow-y: auto; padding: 20px 24px 32px; }
 .msg {
@@ -176,12 +178,12 @@ aside {
   border-radius: var(--radius);
   background: var(--panel); border: 1px solid var(--border);
 }
-.msg.user { background: var(--accent-soft); border-color: rgba(229, 160, 76, .22); }
+.msg.user { background: var(--accent-soft); border-color: rgba(191, 78, 36, .25); }
 .msg .role { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px; }
 .msg.user .role { color: var(--accent-strong); }
 .msg .text { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; font-size: 13.5px; }
 
-details.tool { margin-top: 8px; background: rgba(0, 0, 0, .25); border: 1px solid var(--border); border-radius: 8px; }
+details.tool { margin-top: 8px; background: rgba(31, 30, 27, .045); border: 1px solid var(--border); border-radius: 8px; }
 details.tool summary {
   cursor: pointer; padding: 6px 11px;
   font-family: var(--mono); font-size: 11.5px; color: var(--accent-strong);
@@ -205,10 +207,10 @@ details.tool pre {
 #toast {
   position: fixed; right: 18px; bottom: 18px; z-index: 50;
   max-width: 460px; padding: 11px 15px;
-  background: var(--panel-2); border: 1px solid var(--border-strong);
+  background: var(--panel); border: 1px solid var(--border-strong);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius); font-size: 12.5px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  box-shadow: 0 12px 32px rgba(31, 30, 27, .16);
   opacity: 0; transform: translateY(8px);
   transition: opacity 200ms, transform 200ms;
   pointer-events: none; word-break: break-all;
