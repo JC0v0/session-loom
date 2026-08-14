@@ -16,6 +16,8 @@ describe('codex read', () => {
     expect(session.sourceTool).toBe('codex');
     expect(session.sessionId).toBe('s1');
     expect(session.cwd).toBe('C:\\proj');
+    expect(session.createdAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(session.updatedAt).toBe('2026-01-01T00:00:05.000Z');
     expect(session.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(session.messages.some((m) => m.text.includes('system prompt'))).toBe(false);
   });

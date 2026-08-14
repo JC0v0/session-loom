@@ -15,6 +15,8 @@ describe('claude read', () => {
     expect(session.sourceTool).toBe('claude');
     expect(session.sessionId).toBe('s2');
     expect(session.cwd).toBe('C:\\proj');
+    expect(session.createdAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(session.updatedAt).toBe('2026-01-01T00:00:02.000Z');
     expect(session.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
