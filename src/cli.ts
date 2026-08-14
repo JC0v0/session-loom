@@ -79,3 +79,5 @@ function printHelp(): void {
   console.log('  restore --to <codex|claude> [session-id]  Restore a canonical session');
   console.log('  list [--tool <codex|claude>]  List canonical sessions');
 }
+
+main(process.argv.slice(2));
