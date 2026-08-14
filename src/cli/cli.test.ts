@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CANONICAL_SCHEMA_VERSION, type CanonicalSession } from '../canonical/types';
-import { writeSession } from '../store/store';
+import { closeStore, writeSession } from '../store/store';
 import { restoreCommand } from './restore';
 
 let store: string;
@@ -20,6 +20,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeStore();
   rmSync(store, { recursive: true, force: true });
   rmSync(codexRoot, { recursive: true, force: true });
   rmSync(claudeRoot, { recursive: true, force: true });

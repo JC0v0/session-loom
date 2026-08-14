@@ -1,7 +1,7 @@
 import { daemonCommand } from './cli/daemon';
 import { restoreCommand } from './cli/restore';
 import type { SourceTool } from './canonical/types';
-import { listSessions } from './store/store';
+import { exportSession, listSessions, searchSessions } from './store/store';
 
 const VERSION = '0.1.0';
 
@@ -13,6 +13,12 @@ export function main(argv: string[]): void {
       return;
     case 'list':
       runList(rest);
+      return;
+    case 'search':
+      runSearch(rest);
+      return;
+    case 'export':
+      runExport(rest);
       return;
     case 'daemon':
       daemonCommand(rest);
@@ -69,6 +75,33 @@ function runList(args: string[]): void {
   }
 }
 
+function runSearch(args: string[]): void {
+  const query = args.join(' ').trim();
+  if (!query) {
+    console.error('search requires a query');
+    process.exitCode = 2;
+    return;
+  }
+  for (const session of searchSessions(query)) {
+    console.log(`${session.sessionId}\t${session.sourceTool}\t${session.cwd}\t${session.updatedAt}`);
+  }
+}
+
+function runExport(args: string[]): void {
+  const sessionId = args[0];
+  if (!sessionId) {
+    console.error('export requires a session id');
+    process.exitCode = 2;
+    return;
+  }
+  try {
+    process.stdout.write(exportSession(sessionId));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
 function printHelp(): void {
   console.log('session-loom - mirror coding-agent sessions into a canonical format');
   console.log();
@@ -78,6 +111,8 @@ function printHelp(): void {
   console.log('  daemon [start|stop|status]  Run the background mirror (default: start)');
   console.log('  restore --to <codex|claude> [session-id]  Restore a canonical session');
   console.log('  list [--tool <codex|claude>]  List canonical sessions');
+  console.log('  search <query>  Search sessions by text or path');
+  console.log('  export <session-id>  Export a canonical session as JSON');
 }
 
 main(process.argv.slice(2));

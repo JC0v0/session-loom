@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { closeStore, listSessions } from '../store/store';
 import { startWatcher, type WatchState } from './watch';
 
 let fixture: string;
@@ -16,6 +17,7 @@ beforeEach(() => {
 
 afterEach(() => {
   watcher?.stop();
+  closeStore();
   rmSync(fixture, { recursive: true, force: true });
   rmSync(store, { recursive: true, force: true });
 });
@@ -31,19 +33,18 @@ describe('daemon watcher', () => {
     writeFileSync(file, codexSession, 'utf8');
     watcher = startWatcher([{ sourceTool: 'codex', root: fixture }], { intervalMs: 30 });
 
-    const storeFile = join(store, 'codex', 's1.json');
-    await waitFor(() => existsSync(storeFile));
-    expect(readFileSync(storeFile, 'utf8')).toContain('hello');
+    await waitFor(() => listSessions().some((s) => s.sessionId === 's1'));
+    expect(listSessions()[0].messages[0].text).toBe('hello');
 
     appendFileSync(file, `\n${JSON.stringify({ timestamp: '2026-01-01T00:00:02.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'world' }] } })}`, 'utf8');
-    await waitFor(() => readFileSync(storeFile, 'utf8').includes('world'));
+    await waitFor(() => listSessions().some((s) => s.sessionId === 's1' && s.messages.some((m) => m.text === 'world')));
   });
 
   it('does not write back into the watched directory', async () => {
     const file = join(fixture, 's1.jsonl');
     writeFileSync(file, codexSession, 'utf8');
     watcher = startWatcher([{ sourceTool: 'codex', root: fixture }], { intervalMs: 30 });
-    await waitFor(() => existsSync(join(store, 'codex', 's1.json')));
+    await waitFor(() => listSessions().some((s) => s.sessionId === 's1'));
     expect(readdirSync(fixture)).toEqual(['s1.jsonl']);
   });
 });
