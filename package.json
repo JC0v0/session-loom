@@ -11,14 +11,44 @@
   "scripts": {
     "start": "tsx src/cli.ts",
     "desktop": "electron .",
+    "dist": "electron-builder",
     "typecheck": "tsc",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "tsx": "^4.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^43.4.0",
-    "tsx": "^4.20.0",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
+  },
+  "build": {
+    "appId": "com.sessionloom.app",
+    "productName": "session-loom",
+    "asar": false,
+    "files": [
+      "electron/**",
+      "src/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "session-loom"
+    },
+    "directories": {
+      "output": "dist"
+    }
   }
 }
