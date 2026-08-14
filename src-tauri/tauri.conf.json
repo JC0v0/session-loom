@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "session-loom",
+  "productName": "Session-Loom",
   "version": "0.1.0",
   "identifier": "com.sessionloom.app",
   "build": {
@@ -11,7 +11,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "session-loom",
+        "title": "Session-Loom",
         "width": 1280,
         "height": 840,
         "minWidth": 980,
