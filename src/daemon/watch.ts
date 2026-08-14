@@ -19,16 +19,16 @@ export function startWatcher(targets: WatchTarget[], options?: { intervalMs?: nu
   const scan = (): void => {
     for (const target of targets) {
       for (const file of listSessionFiles(target.root)) {
-        const stat = statSync(file);
-        const signature = `${stat.mtimeMs}:${stat.size}`;
-        const key = `${target.sourceTool}:${file}`;
-        if (seen.get(key) !== signature) {
-          seen.set(key, signature);
-          try {
+        try {
+          const stat = statSync(file);
+          const signature = `${stat.mtimeMs}:${stat.size}`;
+          const key = `${target.sourceTool}:${file}`;
+          if (seen.get(key) !== signature) {
+            seen.set(key, signature);
             mirrorSession(file, target.sourceTool);
-          } catch {
-            // A partially written session may fail to parse; retry on the next change.
           }
+        } catch {
+          // The file may have been deleted or partially written; retry on the next scan.
         }
       }
     }
