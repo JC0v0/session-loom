@@ -214,17 +214,15 @@
   <div id="toast"></div>
 
 <script>
-  const api = window.sessionApi || (() => {
-      const { invoke } = window.__TAURI__.core;
-      return {
-        list: (filter) => invoke('sessions_list', { filter }),
-        get: (id) => invoke('sessions_get', { sessionId: id }),
-        remove: (id) => invoke('sessions_delete', { sessionId: id }),
-        restore: (id, target) => invoke('sessions_restore', { sessionId: id, target }),
-        daemonStatus: () => invoke('daemon_status'),
-        daemonToggle: () => invoke('daemon_toggle'),
-      };
-    })();
+  const { invoke } = window.__TAURI__.core;
+  const api = {
+    list: (filter) => invoke('sessions_list', { filter }),
+    get: (id) => invoke('sessions_get', { sessionId: id }),
+    remove: (id) => invoke('sessions_delete', { sessionId: id }),
+    restore: (id, target) => invoke('sessions_restore', { sessionId: id, target }),
+    daemonStatus: () => invoke('daemon_status'),
+    daemonToggle: () => invoke('daemon_toggle'),
+  };
   const state = { tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '' };
 
   const $ = (id) => document.getElementById(id);

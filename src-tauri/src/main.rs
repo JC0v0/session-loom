@@ -5,6 +5,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fs, path::PathBuf, process::Command};
 
+fn no_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionCard {
@@ -233,7 +242,10 @@ fn sessions_restore(session_id: String, target: String) -> RestoreResult {
         };
     }
     let (program, args) = cli_invocation(&["restore", "--to", &target, &session_id]);
-    match Command::new(&program).args(&args).output() {
+    let mut cmd = Command::new(&program);
+    cmd.args(&args);
+    no_window(&mut cmd);
+    match cmd.output() {
         Ok(out) => {
             let mut msg = String::from_utf8_lossy(&out.stdout).to_string();
             msg.push_str(&String::from_utf8_lossy(&out.stderr));
@@ -255,9 +267,10 @@ fn sessions_restore(session_id: String, target: String) -> RestoreResult {
 }
 
 fn pid_alive(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output()
+    let mut cmd = Command::new("tasklist");
+    cmd.args(["/FI", &format!("PID eq {pid}"), "/NH"]);
+    no_window(&mut cmd);
+    cmd.output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
         .unwrap_or(false)
 }
@@ -298,9 +311,10 @@ fn daemon_toggle() -> DaemonState {
     let state = daemon_state();
     if state.running {
         if let Some(pid) = state.pid {
-            let _ = Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F"])
-                .output();
+            let mut cmd = Command::new("taskkill");
+            cmd.args(["/PID", &pid.to_string(), "/F"]);
+            no_window(&mut cmd);
+            let _ = cmd.output();
         }
         let _ = fs::remove_file(pid_file());
         return DaemonState {
