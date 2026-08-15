@@ -289,7 +289,6 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building session-loom");
     app.run(|app, event| {
-        let _ = (app, event);
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen {
             has_visible_windows: false,
@@ -298,6 +297,9 @@ fn main() {
         {
             show_main_window(app);
         }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
     });
 }
 
