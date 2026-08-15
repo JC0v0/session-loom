@@ -86,6 +86,10 @@ aside {
   background: var(--bg-soft);
 }
 .side-tools { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+body:not(.trash-mode) #trashTools { display: none; }
+body.trash-mode #sessionTools,
+body.trash-mode #openTrash { display: none; }
+body.trash-mode #trashTools { display: flex; }
 
 #search {
   width: 100%; padding: 7px 12px;
@@ -248,7 +252,7 @@ details.tool pre {
           <button class="tab" data-tool="dsh">DSH</button>
         </div>
       </div>
-      <div class="side-tools" id="trashTools" style="display: none">
+      <div class="side-tools" id="trashTools">
         <div class="trash-note" id="trashNote">回收站 · 删除后 30 天内可恢复</div>
         <button class="btn block" id="closeTrash">← 返回会话列表</button>
       </div>
@@ -632,9 +636,7 @@ details.tool pre {
 
   function enterTrashMode() {
     state.mode = 'trash';
-    $('sessionTools').style.display = 'none';
-    $('trashTools').style.display = 'flex';
-    $('openTrash').style.display = 'none';
+    document.body.classList.add('trash-mode');
     clearDetail();
     state.trashFingerprint = '';
     loadTrash(false);
@@ -642,9 +644,7 @@ details.tool pre {
 
   function exitTrashMode() {
     state.mode = 'sessions';
-    $('trashTools').style.display = 'none';
-    $('sessionTools').style.display = 'flex';
-    $('openTrash').style.display = '';
+    document.body.classList.remove('trash-mode');
     clearDetail();
     state.fingerprint = '';
     loadSessions(false);

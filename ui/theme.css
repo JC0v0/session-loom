@@ -78,6 +78,10 @@ aside {
   background: var(--bg-soft);
 }
 .side-tools { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+body:not(.trash-mode) #trashTools { display: none; }
+body.trash-mode #sessionTools,
+body.trash-mode #openTrash { display: none; }
+body.trash-mode #trashTools { display: flex; }
 
 #search {
   width: 100%; padding: 7px 12px;
