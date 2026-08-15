@@ -301,10 +301,13 @@ details.tool pre {
     toastTimer = setTimeout(() => { el.className = ''; }, 5200);
   }
 
+  let sessionLoadVersion = 0;
   async function loadSessions(keepScroll = true) {
+    const requestVersion = ++sessionLoadVersion;
     const scroll = listEl.scrollTop;
     try {
       const sessions = await api.list({ tool: state.tool === 'all' ? undefined : state.tool, query: state.query });
+      if (requestVersion !== sessionLoadVersion) return;
       state.sessions = sessions;
       $('countPill').textContent = sessions.length + ' 个会话';
       const fp = JSON.stringify(sessions.map((s) => s.sessionId + s.updatedAt));
@@ -317,6 +320,7 @@ details.tool pre {
         clearDetail();
       }
     } catch (e) {
+      if (requestVersion !== sessionLoadVersion) return;
       toast('加载会话失败: ' + (e.message || e), false);
     }
   }
