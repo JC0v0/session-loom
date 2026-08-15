@@ -12,7 +12,7 @@ use std::{process::ExitCode, str::FromStr, time::Duration};
 #[command(
     name = "ssl",
     version,
-    about = "Mirror Claude Code and Codex sessions into a durable canonical format"
+    about = "Mirror Claude Code, Codex, OpenCode, and DeepSeek Harness sessions into a durable canonical format"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -26,12 +26,12 @@ enum Command {
         action: Option<DaemonAction>,
     },
     Restore {
-        #[arg(long, value_parser = ["codex", "claude"])]
+        #[arg(long, value_parser = ["codex", "claude", "opencode", "dsh"])]
         to: String,
         session_id: Option<String>,
     },
     List {
-        #[arg(long, value_parser = ["codex", "claude"])]
+        #[arg(long, value_parser = ["codex", "claude", "opencode", "dsh"])]
         tool: Option<String>,
     },
     Search {
@@ -142,6 +142,14 @@ fn run_daemon(action: DaemonAction) -> Result<Option<String>, String> {
                     WatchTarget {
                         source_tool: SourceTool::Claude,
                         root: paths::claude_sessions_root(),
+                    },
+                    WatchTarget {
+                        source_tool: SourceTool::OpenCode,
+                        root: paths::opencode_database(),
+                    },
+                    WatchTarget {
+                        source_tool: SourceTool::Dsh,
+                        root: paths::dsh_sessions_root(),
                     },
                 ],
             )

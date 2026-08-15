@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use session_loom_core::{
+    adapters::{dsh, opencode},
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
     restore::{restore_session, RestoreRoots},
     store::{ListFilter, Store},
@@ -201,7 +202,7 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
     let connection = Connection::open(store.db_path()).unwrap();
     connection
         .execute(
-            "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 "broken",
                 "codex",
@@ -209,7 +210,8 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
                 "2026-01-01T00:00:00.000Z",
                 "2026-01-01T00:00:00.000Z",
                 1,
-                "not valid json"
+                "not valid json",
+                Option::<String>::None
             ],
         )
         .unwrap();
@@ -233,21 +235,44 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
 }
 
 #[test]
-fn restores_sessions_to_codex_and_claude() {
+fn restores_sessions_to_codex_claude_opencode_and_dsh() {
     let store_temp = tempfile::tempdir().unwrap();
     let codex_temp = tempfile::tempdir().unwrap();
     let claude_temp = tempfile::tempdir().unwrap();
+    let opencode_temp = tempfile::tempdir().unwrap();
+    let opencode_db = opencode_temp.path().join("opencode.db");
+    let dsh_temp = tempfile::tempdir().unwrap();
     let store = Store::open(store_temp.path()).unwrap();
     store.write_session(&sample()).unwrap();
     let roots = RestoreRoots {
         codex: codex_temp.path().to_path_buf(),
         claude: claude_temp.path().to_path_buf(),
+        opencode: opencode_db.clone(),
+        dsh: dsh_temp.path().to_path_buf(),
     };
 
     assert!(restore_session(&store, SourceTool::Codex, Some("s1"), &roots).ok);
     assert_eq!(walk_jsonl(codex_temp.path()).len(), 1);
     assert!(restore_session(&store, SourceTool::Claude, Some("s1"), &roots).ok);
     assert!(claude_temp.path().join("history.jsonl").exists());
+
+    assert!(restore_session(&store, SourceTool::OpenCode, Some("s1"), &roots).ok);
+    let restored = opencode::parse_sessions(&opencode_db).unwrap();
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0].source_tool, SourceTool::OpenCode);
+    assert_eq!(restored[0].cwd, "C:/proj");
+    assert_eq!(restored[0].messages[0].text, "帮我修一下这个 bug");
+    assert_ne!(restored[0].session_id, "s1");
+
+    assert!(restore_session(&store, SourceTool::Dsh, Some("s1"), &roots).ok);
+    let dsh_logs = dsh::session_log_files(dsh_temp.path());
+    assert_eq!(dsh_logs.len(), 1);
+    let dsh_restored = dsh::parse_session_file(&dsh_logs[0]).unwrap().unwrap();
+    assert_eq!(dsh_restored.source_tool, SourceTool::Dsh);
+    assert_eq!(dsh_restored.cwd, r"C:\proj");
+    assert_eq!(dsh_restored.messages[0].text, "帮我修一下这个 bug");
+    assert_ne!(dsh_restored.session_id, "s1");
+
     assert!(!restore_session(&store, SourceTool::Codex, Some("missing"), &roots).ok);
 }
 

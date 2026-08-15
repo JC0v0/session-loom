@@ -1,7 +1,8 @@
 use crate::{
-    adapters::{claude, codex},
+    adapters::{claude, codex, dsh, opencode},
     canonical::SourceTool,
     store::Store,
+    trash::{Trash, TRASH_RETENTION},
 };
 use std::{
     collections::HashMap,
@@ -33,8 +34,10 @@ impl SessionWatcher {
     }
 
     pub fn scan_once(&mut self) {
+        let trash = Trash::new(self.store.root());
+        let _ = trash.purge_expired(TRASH_RETENTION);
         for target in &self.targets {
-            for file in session_files(&target.root) {
+            for file in session_files(target) {
                 let Ok(metadata) = fs::metadata(&file) else {
                     continue;
                 };
@@ -49,7 +52,7 @@ impl SessionWatcher {
                 if self.seen.get(&key) == Some(&signature) {
                     continue;
                 }
-                if mirror_file(&self.store, target.source_tool, &file).is_ok() {
+                if mirror_file(&self.store, target.source_tool, &file, &trash).is_ok() {
                     self.seen.insert(key, signature);
                 }
             }
@@ -64,19 +67,73 @@ impl SessionWatcher {
     }
 }
 
-fn mirror_file(store: &Store, source_tool: SourceTool, file: &Path) -> Result<(), String> {
-    let payload = fs::read_to_string(file).map_err(|error| error.to_string())?;
-    let session = match source_tool {
-        SourceTool::Codex => codex::parse_session(&payload)?,
-        SourceTool::Claude => claude::parse_session(&payload)?,
-    };
-    store.write_session(&session)
+fn mirror_file(
+    store: &Store,
+    source_tool: SourceTool,
+    file: &Path,
+    trash: &Trash,
+) -> Result<(), String> {
+    match source_tool {
+        SourceTool::OpenCode => {
+            for session in opencode::parse_sessions(file)? {
+                if !trash.contains(&session.session_id) {
+                    store.write_session_from(&session, Some(file))?;
+                }
+            }
+            Ok(())
+        }
+        SourceTool::Dsh => {
+            if let Some(session) = dsh::parse_session_file(file)? {
+                if !trash.contains(&session.session_id) {
+                    store.write_session_from(&session, Some(file))?;
+                }
+            }
+            Ok(())
+        }
+        SourceTool::Codex | SourceTool::Claude => {
+            let payload = fs::read_to_string(file).map_err(|error| error.to_string())?;
+            let session = match source_tool {
+                SourceTool::Codex => codex::parse_session(&payload)?,
+                SourceTool::Claude => claude::parse_session(&payload)?,
+                SourceTool::OpenCode | SourceTool::Dsh => unreachable!(),
+            };
+            if !trash.contains(&session.session_id) {
+                store.write_session_from(&session, Some(file))?;
+            }
+            Ok(())
+        }
+    }
 }
 
-fn session_files(root: &Path) -> Vec<PathBuf> {
-    let mut files = vec![];
-    walk(root, &mut files);
-    files
+fn session_files(target: &WatchTarget) -> Vec<PathBuf> {
+    match target.source_tool {
+        SourceTool::OpenCode => opencode_session_files(&target.root),
+        SourceTool::Dsh => dsh::session_log_files(&target.root),
+        SourceTool::Codex | SourceTool::Claude => {
+            let mut files = vec![];
+            walk(&target.root, &mut files);
+            files
+        }
+    }
+}
+
+fn opencode_session_files(root: &Path) -> Vec<PathBuf> {
+    if root.is_file() {
+        return vec![root.to_path_buf()];
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return vec![];
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("opencode") && name.ends_with(".db"))
+                .unwrap_or(false)
+        })
+        .collect()
 }
 
 fn walk(directory: &Path, files: &mut Vec<PathBuf>) {

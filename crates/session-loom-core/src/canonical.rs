@@ -8,6 +8,8 @@ pub const CANONICAL_SCHEMA_VERSION: u32 = 1;
 pub enum SourceTool {
     Codex,
     Claude,
+    OpenCode,
+    Dsh,
 }
 
 impl SourceTool {
@@ -15,6 +17,8 @@ impl SourceTool {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
+            Self::OpenCode => "opencode",
+            Self::Dsh => "dsh",
         }
     }
 }
@@ -26,6 +30,8 @@ impl std::str::FromStr for SourceTool {
         match value {
             "codex" => Ok(Self::Codex),
             "claude" => Ok(Self::Claude),
+            "opencode" => Ok(Self::OpenCode),
+            "dsh" => Ok(Self::Dsh),
             _ => Err(format!("unknown source tool: {value}")),
         }
     }

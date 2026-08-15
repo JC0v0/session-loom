@@ -1,5 +1,5 @@
 use crate::{
-    adapters::{claude, codex},
+    adapters::{claude, codex, dsh, opencode},
     canonical::SourceTool,
     paths,
     store::Store,
@@ -13,6 +13,8 @@ use uuid::Uuid;
 pub struct RestoreRoots {
     pub codex: PathBuf,
     pub claude: PathBuf,
+    pub opencode: PathBuf,
+    pub dsh: PathBuf,
 }
 
 impl RestoreRoots {
@@ -20,6 +22,8 @@ impl RestoreRoots {
         Self {
             codex: paths::codex_sessions_root(),
             claude: paths::claude_root(),
+            opencode: paths::opencode_database(),
+            dsh: paths::dsh_sessions_root(),
         }
     }
 }
@@ -46,6 +50,22 @@ pub fn restore_session(
     };
 
     let result = match target {
+        SourceTool::Dsh => dsh::write_session_to_root(&session, &roots.dsh).map(|result| {
+            format!(
+                "restored to DeepSeek Harness: {} ({})",
+                result.session_id,
+                result.log_file.display()
+            )
+        }),
+        SourceTool::OpenCode => {
+            opencode::write_session_to_database(&session, &roots.opencode).map(|result| {
+                format!(
+                    "restored to OpenCode: {} ({})",
+                    result.session_id,
+                    result.database.display()
+                )
+            })
+        }
         SourceTool::Claude => {
             claude::write_session_to_root(&session, &roots.claude).map(|result| {
                 format!(

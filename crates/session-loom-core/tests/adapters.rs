@@ -1,6 +1,7 @@
+use rusqlite::params;
 use serde_json::{json, Value};
 use session_loom_core::{
-    adapters::{claude, codex},
+    adapters::{claude, codex, dsh, opencode},
     canonical::{CanonicalSession, Message, Role, SourceTool, ToolCall, CANONICAL_SCHEMA_VERSION},
 };
 
@@ -159,4 +160,275 @@ fn claude_restore_removes_the_session_when_history_cannot_be_updated() {
     let project = temp.path().join("projects").join("C--proj");
     assert!(project.exists());
     assert!(std::fs::read_dir(project).unwrap().next().is_none());
+}
+
+#[test]
+fn opencode_database_round_trips_messages_and_tool_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("opencode.db");
+    let mut session = sample_session(SourceTool::OpenCode);
+    session.cwd = "F:/proj".to_string();
+
+    let result = opencode::write_session_to_database(&session, &database).unwrap();
+    assert!(result.session_id.starts_with("ses_"));
+
+    let sessions = opencode::parse_sessions(&database).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let restored = &sessions[0];
+    assert_eq!(restored.source_tool, SourceTool::OpenCode);
+    assert_eq!(restored.session_id, result.session_id);
+    assert_eq!(restored.cwd, "F:/proj");
+    assert_eq!(restored.created_at, "2026-01-01T00:00:00.000Z");
+    assert_eq!(restored.messages.len(), 2);
+    assert_eq!(restored.messages[0].text, "hello");
+    assert_eq!(restored.messages[1].text, "running");
+    assert_eq!(restored.messages[1].tool_calls.len(), 1);
+    assert_eq!(restored.messages[1].tool_calls[0].name, "shell");
+    assert_eq!(
+        restored.messages[1].tool_calls[0].input,
+        json!({"cmd": "ls"})
+    );
+    assert_eq!(
+        restored.messages[1].tool_calls[0].output.as_deref(),
+        Some("file.txt")
+    );
+}
+
+#[test]
+fn parses_opencode_database_rows() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("opencode.db");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE session (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, slug TEXT NOT NULL,
+                directory TEXT NOT NULL, title TEXT NOT NULL, version TEXT NOT NULL,
+                cost REAL NOT NULL DEFAULT 0, tokens_input INTEGER NOT NULL DEFAULT 0,
+                tokens_output INTEGER NOT NULL DEFAULT 0, tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+                tokens_cache_read INTEGER NOT NULL DEFAULT 0, tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+             CREATE TABLE message (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);
+             CREATE TABLE part (
+                id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);",
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO session VALUES ('ses_1', 'global', 'brave-cabin', 'C:/proj', 'title',
+              'v1', 0, 0, 0, 0, 0, 0, 1767225600000, 1767225602000)",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO message VALUES ('msg_1', 'ses_1', 1767225600000, 1767225600000, ?)",
+            params![json!({"role": "user", "time": {"created": 1767225600000_i64}}).to_string()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO message VALUES ('msg_2', 'ses_1', 1767225601000, 1767225601000, ?)",
+            params![
+                json!({"role": "assistant", "time": {"created": 1767225601000_i64}}).to_string()
+            ],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO part VALUES ('prt_1', 'msg_1', 'ses_1', 1767225600000, 1767225600000, ?)",
+            params![json!({"type": "text", "text": "hello"}).to_string()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO part VALUES ('prt_2', 'msg_2', 'ses_1', 1767225601000, 1767225601000, ?)",
+            params![json!({
+                "type": "tool", "callID": "c1", "tool": "shell",
+                "state": { "status": "completed", "input": {"cmd": "ls"}, "output": "file.txt" }
+            })
+            .to_string()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO part VALUES ('prt_3', 'msg_2', 'ses_1', 1767225601000, 1767225601000, ?)",
+            params![json!({"type": "reasoning", "text": "thinking"}).to_string()],
+        )
+        .unwrap();
+    drop(connection);
+
+    let sessions = opencode::parse_sessions(&database).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let session = &sessions[0];
+    assert_eq!(session.session_id, "ses_1");
+    assert_eq!(session.cwd, "C:/proj");
+    assert_eq!(session.created_at, "2026-01-01T00:00:00.000Z");
+    assert_eq!(session.updated_at, "2026-01-01T00:00:02.000Z");
+    assert_eq!(session.messages.len(), 2);
+    assert_eq!(session.messages[0].text, "hello");
+    assert_eq!(session.messages[1].text, "");
+    assert_eq!(session.messages[1].tool_calls[0].name, "shell");
+    assert_eq!(
+        session.messages[1].tool_calls[0].output.as_deref(),
+        Some("file.txt")
+    );
+}
+
+#[test]
+fn parses_nothing_from_a_missing_opencode_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let sessions = opencode::parse_sessions(&temp.path().join("opencode.db")).unwrap();
+    assert!(sessions.is_empty());
+}
+#[test]
+fn dsh_log_round_trips_messages_and_tool_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("sessions");
+    let mut session = sample_session(SourceTool::Dsh);
+    session.cwd = "F:/proj".to_string();
+
+    let result = dsh::write_session_to_root(&session, &root).unwrap();
+    assert!(result.session_id.starts_with("session-"));
+    assert!(result.log_file.to_string_lossy().ends_with(".jsonl.zstd"));
+
+    let parsed = dsh::parse_session_file(&result.log_file).unwrap().unwrap();
+    assert_eq!(parsed.source_tool, SourceTool::Dsh);
+    assert_eq!(parsed.session_id, result.session_id);
+    assert_eq!(parsed.cwd, "F:/proj");
+    assert_eq!(parsed.messages.len(), 2);
+    assert_eq!(parsed.messages[0].text, "hello");
+    assert_eq!(parsed.messages[1].text, "running");
+    assert_eq!(parsed.messages[1].tool_calls[0].name, "shell");
+    assert_eq!(parsed.messages[1].tool_calls[0].input, json!({"cmd": "ls"}));
+    assert_eq!(
+        parsed.messages[1].tool_calls[0].output.as_deref(),
+        Some("file.txt")
+    );
+}
+
+#[test]
+fn parses_dsh_session_logs() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("session.jsonl");
+    let lines = [
+        json!({"type":"session","version":0,"id":"session-abc","createdAt":1767225600000_i64,"cwd":"C:/proj","delegationDepth":0}),
+        json!({"type":"permission/preset","seq":0,"time":1767225600001_i64,"data":{"preset":"workspace-write"}}),
+        json!({"type":"turn/start","seq":1,"time":1767225600002_i64,"data":{"turn":1}}),
+        json!({"type":"user/message","seq":2,"time":1767225600003_i64,"data":{"id":"m1","role":"user","content":[{"type":"text","text":"hello"}],"source":{"kind":"user"}},"surfaceOp":"append"}),
+        json!({"type":"user/message","seq":3,"time":1767225600004_i64,"data":{"id":"m2","role":"user","content":[{"type":"text","text":"injected context"}],"source":{"kind":"plugin","plugin":"x"}},"surfaceOp":"append"}),
+        json!({"type":"assistant/message","seq":4,"time":1767225600005_i64,"data":{"turn":1,"step":1,"message":{"id":"m3","role":"assistant","content":[{"type":"reasoning","text":"think"},{"type":"text","text":"running"}],"source":{"kind":"model","provider":"deepseek","model":"chat"}}},"surfaceOp":"append"}),
+        json!({"type":"tool/call","seq":5,"time":1767225600006_i64,"data":{"turn":1,"step":1,"callId":"tool_1","name":"shell","arguments":"{\"cmd\":\"ls\"}"}}),
+        json!({"type":"tool/result","seq":6,"time":1767225600007_i64,"data":{"turn":1,"step":1,"message":{"id":"m4","role":"user","content":[{"type":"tool-result","toolCallId":"tool_1","content":[{"type":"text","text":"file.txt"}]}],"source":{"kind":"tool","callId":"tool_1"}}},"surfaceOp":"append"}),
+        json!({"type":"assistant/message","seq":7,"time":1767225600008_i64,"data":{"turn":1,"step":1,"message":{"id":"m5","role":"assistant","content":[{"type":"text","text":"compacted"}]}},"surfaceOp":{"op":"replace","start":0,"end":3}}),
+        json!({"type":"step/end","seq":8,"time":1767225600009_i64,"data":{"turn":1,"step":1}}),
+        json!({"type":"turn/end","seq":9,"time":1767225600010_i64,"data":{"turn":1,"reason":{"kind":"completed"}}}),
+        json!({"type":"text-chunks","seq":10,"time":1767225600011_i64,"data":{"turn":1,"step":1,"index":0,"chunks":["a","b"]}}),
+    ];
+    let content = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    std::fs::write(&file, content).unwrap();
+
+    let session = dsh::parse_session_file(&file).unwrap().unwrap();
+    assert_eq!(session.source_tool, SourceTool::Dsh);
+    assert_eq!(session.session_id, "session-abc");
+    assert_eq!(session.cwd, "C:/proj");
+    assert_eq!(session.created_at, "2026-01-01T00:00:00.000Z");
+    assert_eq!(session.updated_at, "2026-01-01T00:00:00.011Z");
+    assert_eq!(session.messages.len(), 2);
+    assert_eq!(session.messages[0].text, "hello");
+    assert_eq!(session.messages[1].text, "running");
+    assert_eq!(
+        session.messages[1].tool_calls[0].input,
+        json!({"cmd": "ls"})
+    );
+    assert_eq!(
+        session.messages[1].tool_calls[0].output.as_deref(),
+        Some("file.txt")
+    );
+}
+
+#[test]
+fn dsh_skips_subagent_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("session.jsonl");
+    std::fs::write(
+        &file,
+        json!({"type":"session","version":0,"id":"session-sub","createdAt":1767225600000_i64,"cwd":"C:/proj","origin":"subagent","delegationDepth":1})
+            .to_string()
+            + "\n",
+    )
+    .unwrap();
+
+    assert!(dsh::parse_session_file(&file).unwrap().is_none());
+}
+#[test]
+fn dsh_parse_tolerates_a_torn_final_frame() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("sessions");
+    let mut session = sample_session(SourceTool::Dsh);
+    session.messages.push(Message {
+        role: Role::User,
+        text: "second turn".to_string(),
+        tool_calls: vec![],
+    });
+    let result = dsh::write_session_to_root(&session, &root).unwrap();
+    let mut bytes = std::fs::read(&result.log_file).unwrap();
+    // Simulate a live append interrupted mid-frame: truncate the tail frame.
+    bytes.truncate(bytes.len() - 6);
+    std::fs::write(&result.log_file, bytes).unwrap();
+
+    let parsed = dsh::parse_session_file(&result.log_file).unwrap().unwrap();
+    assert_eq!(parsed.session_id, result.session_id);
+    // The first turn's frame survives; the torn final turn is dropped.
+    assert_eq!(parsed.messages.len(), 2);
+    assert_eq!(parsed.messages[0].text, "hello");
+    assert_eq!(parsed.messages[1].text, "running");
+}
+#[test]
+fn dsh_restore_embeds_tool_call_blocks_in_assistant_messages() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("sessions");
+    let result = dsh::write_session_to_root(&sample_session(SourceTool::Dsh), &root).unwrap();
+
+    let bytes = std::fs::read(&result.log_file).unwrap();
+    let text = String::from_utf8(zstd::stream::decode_all(bytes.as_slice()).unwrap()).unwrap();
+    let events = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    let assistant = events
+        .iter()
+        .find(|event| event["type"] == "assistant/message")
+        .unwrap();
+    let content = assistant["data"]["message"]["content"].as_array().unwrap();
+    let block = content
+        .iter()
+        .find(|block| block["type"] == "tool-call")
+        .expect("assistant message must carry a tool-call block");
+    assert_eq!(block["id"], "c1");
+    assert_eq!(block["name"], "shell");
+    assert_eq!(block["arguments"], json!({"cmd": "ls"}).to_string());
+
+    let call = events
+        .iter()
+        .find(|event| event["type"] == "tool/call")
+        .unwrap();
+    let tool_result = events
+        .iter()
+        .find(|event| event["type"] == "tool/result")
+        .unwrap();
+    assert_eq!(call["data"]["callId"], "c1");
+    assert_eq!(
+        tool_result["data"]["message"]["content"][0]["toolCallId"],
+        "c1"
+    );
 }

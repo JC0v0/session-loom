@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 pub mod claude;
 pub mod codex;
+pub mod dsh;
+pub mod opencode;
 
 fn json_text(value: Option<&Value>) -> String {
     match value {

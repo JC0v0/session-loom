@@ -1,7 +1,9 @@
 pub mod adapters;
 pub mod canonical;
 pub mod daemon;
+pub mod delete;
 pub mod paths;
 pub mod restore;
 pub mod store;
+pub mod trash;
 pub mod watcher;

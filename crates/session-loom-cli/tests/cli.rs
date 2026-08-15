@@ -87,6 +87,33 @@ fn rust_cli_restores_and_reports_missing_sessions() {
     assert!(restore.status.success());
     assert!(claude.path().join("history.jsonl").exists());
 
+    let opencode = tempfile::tempdir().unwrap();
+    let opencode_db = opencode.path().join("opencode.db");
+    let restore_opencode = Command::new(binary)
+        .args(["restore", "--to", "opencode", "s1"])
+        .env("SESSION_LOOM_STORE", store.path())
+        .env("OPENCODE_DB", &opencode_db)
+        .output()
+        .unwrap();
+    assert!(restore_opencode.status.success());
+    let restored: i64 = Connection::open(&opencode_db)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM session", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(restored, 1);
+
+    let dsh = tempfile::tempdir().unwrap();
+    let restore_dsh = Command::new(binary)
+        .args(["restore", "--to", "dsh", "s1"])
+        .env("SESSION_LOOM_STORE", store.path())
+        .env("DSH_SESSIONS_ROOT", dsh.path())
+        .output()
+        .unwrap();
+    assert!(restore_dsh.status.success());
+    let dsh_logs = session_loom_core::adapters::dsh::session_log_files(dsh.path());
+    assert_eq!(dsh_logs.len(), 1);
+    assert!(dsh_logs[0].to_string_lossy().ends_with(".jsonl.zstd"));
+
     let missing = Command::new(binary)
         .args(["export", "missing"])
         .env("SESSION_LOOM_STORE", store.path())

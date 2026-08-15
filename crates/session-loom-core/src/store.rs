@@ -42,6 +42,7 @@ impl Store {
         };
         let mut connection = store.connection()?;
         create_schema(&connection)?;
+        migrate_source_path_column(&connection)?;
         migrate_legacy_json(&mut connection, &store.root)?;
         migrate_summaries(&mut connection)?;
         Ok(store)
@@ -55,9 +56,41 @@ impl Store {
         &self.database
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn write_session(&self, session: &CanonicalSession) -> Result<(), String> {
+        self.write_session_from(session, None)
+    }
+
+    /// Writes a session and, when known, records the source artifact it was
+    /// mirrored from. A write without a source keeps any previously recorded
+    /// path so plain refreshes never erase the deletion hint.
+    pub fn write_session_from(
+        &self,
+        session: &CanonicalSession,
+        source: Option<&Path>,
+    ) -> Result<(), String> {
         let mut connection = self.connection()?;
-        write_session(&mut connection, session)
+        write_session(
+            &mut connection,
+            session,
+            source.map(|path| path.to_string_lossy().to_string()),
+        )
+    }
+
+    /// The source artifact path recorded for a session, when one is known.
+    pub fn session_source_path(&self, session_id: &str) -> Option<String> {
+        let connection = self.connection().ok()?;
+        connection
+            .query_row(
+                "SELECT source_path FROM sessions WHERE session_id = ?",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
     }
 
     pub fn read_session(&self, session_id: &str) -> Result<CanonicalSession, String> {
@@ -283,7 +316,8 @@ fn create_schema(connection: &Connection) -> Result<(), String> {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 schema_version INTEGER NOT NULL,
-                payload TEXT NOT NULL
+                payload TEXT NOT NULL,
+                source_path TEXT
             );
             CREATE TABLE IF NOT EXISTS session_summaries (
                 session_id TEXT PRIMARY KEY,
@@ -298,15 +332,40 @@ fn create_schema(connection: &Connection) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn write_session(connection: &mut Connection, session: &CanonicalSession) -> Result<(), String> {
+fn migrate_source_path_column(connection: &Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(sessions)")
+        .map_err(|error| error.to_string())?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if !columns.iter().any(|column| column == "source_path") {
+        connection
+            .execute_batch("ALTER TABLE sessions ADD COLUMN source_path TEXT;")
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_session(
+    connection: &mut Connection,
+    session: &CanonicalSession,
+    source_path: Option<String>,
+) -> Result<(), String> {
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
-    upsert_session(&transaction, session)?;
+    upsert_session(&transaction, session, source_path.as_deref())?;
     transaction.commit().map_err(|error| error.to_string())
 }
 
-fn upsert_session(connection: &Connection, session: &CanonicalSession) -> Result<(), String> {
+fn upsert_session(
+    connection: &Connection,
+    session: &CanonicalSession,
+    source_path: Option<&str>,
+) -> Result<(), String> {
     if session.session_id.trim().is_empty() {
         return Err("session id is empty".to_string());
     }
@@ -315,15 +374,16 @@ fn upsert_session(connection: &Connection, session: &CanonicalSession) -> Result
     connection
         .execute(
             "INSERT INTO sessions
-               (session_id, source_tool, cwd, created_at, updated_at, schema_version, payload)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+               (session_id, source_tool, cwd, created_at, updated_at, schema_version, payload, source_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(session_id) DO UPDATE SET
                source_tool = excluded.source_tool,
                cwd = excluded.cwd,
                created_at = excluded.created_at,
                updated_at = excluded.updated_at,
                schema_version = excluded.schema_version,
-               payload = excluded.payload",
+               payload = excluded.payload,
+               source_path = COALESCE(excluded.source_path, sessions.source_path)",
             params![
                 session.session_id,
                 session.source_tool.as_str(),
@@ -331,7 +391,8 @@ fn upsert_session(connection: &Connection, session: &CanonicalSession) -> Result
                 session.created_at,
                 session.updated_at,
                 session.schema_version,
-                payload
+                payload,
+                source_path
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -460,7 +521,12 @@ fn migrate_legacy_json(connection: &mut Connection, root: &Path) -> Result<(), S
         return Ok(());
     }
     let mut sessions = vec![];
-    for tool in [SourceTool::Codex, SourceTool::Claude] {
+    for tool in [
+        SourceTool::Codex,
+        SourceTool::Claude,
+        SourceTool::OpenCode,
+        SourceTool::Dsh,
+    ] {
         let directory = legacy.join(tool.as_str());
         let Ok(entries) = fs::read_dir(directory) else {
             continue;
@@ -483,7 +549,7 @@ fn migrate_legacy_json(connection: &mut Connection, root: &Path) -> Result<(), S
         .transaction()
         .map_err(|error| error.to_string())?;
     for session in &sessions {
-        upsert_session(&transaction, session)?;
+        upsert_session(&transaction, session, None)?;
     }
     transaction.commit().map_err(|error| error.to_string())?;
     let _ = fs::rename(&legacy, root.join("store.legacy"));

@@ -3,9 +3,11 @@
 use session_loom_core::{
     canonical::{CanonicalSession, SourceTool},
     daemon::{self, DaemonState},
+    delete::{self, DeleteResult},
     paths,
     restore::{restore_session, RestoreResult, RestoreRoots},
     store::{ListFilter, SessionCard, Store},
+    trash::{restore_from_trash, Trash, TrashEntry},
 };
 use std::{
     path::{Path, PathBuf},
@@ -105,8 +107,45 @@ async fn sessions_get(session_id: String) -> Result<CanonicalSession, String> {
 }
 
 #[tauri::command]
-fn sessions_delete(session_id: String) -> Result<(), String> {
-    store()?.delete_session(&session_id)
+fn sessions_delete(session_id: String) -> DeleteResult {
+    let store = match store() {
+        Ok(store) => store,
+        Err(message) => {
+            return DeleteResult {
+                ok: false,
+                message,
+                source_deleted: false,
+            }
+        }
+    };
+    delete::delete_session(&store, &session_id, &RestoreRoots::from_environment())
+}
+
+#[tauri::command]
+async fn trash_list() -> Result<Vec<TrashEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store()?;
+        Trash::new(store.root()).list()
+    })
+    .await
+    .map_err(|error| format!("trash list task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn trash_restore(session_id: String) -> Result<CanonicalSession, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store()?;
+        let trash = Trash::new(store.root());
+        restore_from_trash(&store, &trash, &session_id)
+    })
+    .await
+    .map_err(|error| format!("trash restore task failed: {error}"))?
+}
+
+#[tauri::command]
+fn trash_delete(session_id: String) -> Result<(), String> {
+    let store = store()?;
+    Trash::new(store.root()).remove(&session_id)
 }
 
 #[tauri::command]
@@ -237,12 +276,16 @@ fn main() {
             sessions_get,
             sessions_delete,
             sessions_restore,
+            trash_list,
+            trash_restore,
+            trash_delete,
             daemon_status,
             daemon_toggle
         ])
         .build(tauri::generate_context!())
         .expect("error while building session-loom");
     app.run(|app, event| {
+        let _ = (app, event);
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen {
             has_visible_windows: false,
