@@ -13,6 +13,8 @@ fn sample_session(source_tool: SourceTool) -> CanonicalSession {
         cwd: r"C:\proj".to_string(),
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
+        model_provider: Some("custom".to_string()),
+        model: Some("deepseek-v4-pro".to_string()),
         messages: vec![
             Message {
                 role: Role::User,
@@ -52,7 +54,7 @@ fn canonical_json_rejects_unknown_schema_versions() {
 #[test]
 fn parses_codex_messages_calls_and_filters_injected_context() {
     let fixture = [
-        json!({"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"session_id":"s1","cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z"}}),
+        json!({"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"session_id":"s1","cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z","model_provider":"custom","base_instructions":{"provenance":{"type":"model","model":"deepseek-v4-pro"}}}}),
         json!({"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>ignored"}]}}),
         json!({"timestamp":"2026-01-01T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"do it"}]}}),
         json!({"timestamp":"2026-01-01T00:00:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}}),
@@ -69,6 +71,8 @@ fn parses_codex_messages_calls_and_filters_injected_context() {
     assert_eq!(session.source_tool, SourceTool::Codex);
     assert_eq!(session.session_id, "s1");
     assert_eq!(session.cwd, r"C:\proj");
+    assert_eq!(session.model_provider.as_deref(), Some("custom"));
+    assert_eq!(session.model.as_deref(), Some("deepseek-v4-pro"));
     assert_eq!(session.messages.len(), 2);
     assert_eq!(session.messages[0].text, "do it");
     assert_eq!(session.messages[1].tool_calls.len(), 1);
@@ -91,12 +95,29 @@ fn writes_codex_interactive_session_records() {
     assert_eq!(records[0]["payload"]["originator"], "codex-tui");
     assert_eq!(records[0]["payload"]["source"], "cli");
     assert_eq!(records[0]["payload"]["thread_source"], "user");
+    assert!(records[0]["payload"].get("model_provider").is_none());
+    assert!(records[0]["payload"].get("base_instructions").is_none());
     assert!(records
         .iter()
         .any(|record| record["payload"]["type"] == "function_call"));
     assert!(records
         .iter()
         .any(|record| record["payload"]["type"] == "function_call_output"));
+}
+
+#[test]
+fn writes_codex_session_without_model_pinning() {
+    // Restored sessions must not pin a model provider or model, so `codex resume`
+    // lists them in any project and resolves them with that project's defaults.
+    let mut session = sample_session(SourceTool::Codex);
+    session.model_provider = Some("cpa-gui".to_string());
+    session.model = Some("some-model".to_string());
+
+    let output = codex::write_session(&session).unwrap();
+    let record: Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
+
+    assert!(record["payload"].get("model_provider").is_none());
+    assert!(record["payload"].get("base_instructions").is_none());
 }
 
 #[test]

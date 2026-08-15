@@ -75,6 +75,8 @@ pub fn parse_sessions(database: &Path) -> Result<Vec<CanonicalSession>, String> 
                 &session.messages,
                 false,
             )),
+            model_provider: None,
+            model: None,
             messages,
         });
     }

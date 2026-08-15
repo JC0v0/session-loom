@@ -174,6 +174,8 @@ pub fn parse_session_file(path: &Path) -> Result<Option<CanonicalSession>, Strin
         cwd,
         created_at: format_timestamp(created_ms),
         updated_at: format_timestamp(updated_ms.max(created_ms)),
+        model_provider: None,
+        model: None,
         messages,
     }))
 }

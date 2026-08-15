@@ -15,6 +15,8 @@ fn sample() -> CanonicalSession {
         cwd: r"C:\proj".to_string(),
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
         updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+        model_provider: Some("custom".to_string()),
+        model: Some("deepseek-v4-pro".to_string()),
         messages: vec![Message {
             role: Role::User,
             text: "帮我修一下这个 bug".to_string(),

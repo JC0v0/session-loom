@@ -14,10 +14,16 @@ pub fn store_root() -> PathBuf {
         .unwrap_or_else(|_| home_dir().join(".session-loom"))
 }
 
+pub fn codex_home() -> PathBuf {
+    std::env::var("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_dir().join(".codex"))
+}
+
 pub fn codex_sessions_root() -> PathBuf {
     std::env::var("CODEX_SESSIONS_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| home_dir().join(".codex").join("sessions"))
+        .unwrap_or_else(|_| codex_home().join("sessions"))
 }
 
 pub fn claude_root() -> PathBuf {

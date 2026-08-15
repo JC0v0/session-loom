@@ -145,6 +145,8 @@ fn watcher_mirrors_opencode_database_sessions() {
         cwd: "C:/proj".to_string(),
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
+        model_provider: None,
+        model: None,
         messages: vec![Message {
             role: Role::User,
             text: "hello".to_string(),
@@ -271,6 +273,8 @@ fn watcher_mirrors_dsh_session_logs() {
         cwd: "C:/proj".to_string(),
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
+        model_provider: None,
+        model: None,
         messages: vec![Message {
             role: Role::User,
             text: "zstd hello".to_string(),

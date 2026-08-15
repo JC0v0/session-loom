@@ -12,6 +12,8 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
     let mut cwd = String::new();
     let mut created_at = String::new();
     let mut updated_at = String::new();
+    let mut model_provider = None;
+    let mut model = None;
 
     for line in jsonl.lines().filter(|line| !line.trim().is_empty()) {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -41,6 +43,20 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
                 .and_then(Value::as_str)
                 .unwrap_or(&created_at)
                 .to_string();
+            model_provider = payload
+                .get("model_provider")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            model = payload
+                .pointer("/base_instructions/provenance/model")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    payload
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
             if !timestamp.is_empty() {
                 updated_at = timestamp.to_string();
             }
@@ -125,11 +141,17 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         cwd,
         created_at,
         updated_at,
+        model_provider,
+        model,
         messages,
     })
 }
 
 pub fn write_session(session: &CanonicalSession) -> Result<String, String> {
+    // Restored sessions deliberately omit `model_provider` and `base_instructions`:
+    // Codex resolves a rollout without these to the importing project's default
+    // provider and model, so a session saved by Session Loom stays resumable in any
+    // project regardless of that project's config.toml.
     let mut records = vec![json!({
         "timestamp": session.updated_at,
         "type": "session_meta",

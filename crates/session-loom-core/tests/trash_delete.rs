@@ -17,6 +17,8 @@ fn sample(session_id: &str, source_tool: SourceTool) -> CanonicalSession {
         cwd: "C:/proj".to_string(),
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
+        model_provider: None,
+        model: None,
         messages: vec![Message {
             role: Role::User,
             text: "hello trash".to_string(),
