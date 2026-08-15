@@ -17,7 +17,7 @@ Claude Code 和 Codex 各自使用私有的会话存储格式,官方都没有双
 - **canonical 中间格式**:会话统一为带 schema 版本的结构(sourceTool、sessionId、cwd、时间戳、有序消息与工具调用),持久化在 SQLite 中,为归档、搜索、跨机同步留好扩展点。
 - **只迁移对话**:迁移用户/助手消息与工具调用记录(name、input、output 原样保留,**不重新执行**),丢弃源工具的系统提示词与 IDE 注入的上下文。
 - **桌面应用**:Tauri 2 桌面客户端——会话浏览、全文搜索、按来源过滤、对话详情(含工具调用展开)、一键恢复到 Claude / Codex、删除镜像、守护进程开关。支持 Windows(NSIS 安装包)与 macOS(app / DMG)。
-- **命令行 `ssl`**:`daemon` / `restore` / `list` / `search` / `export` 五个命令,纯文本输出,脚本友好。
+- **命令行 `ssl`**:`daemon` / `restore` / `list` / `search` / `export` 五个命令,纯文本输出,脚本友好。Windows 安装包会附带 `ssl` 并自动加入当前用户 PATH,装完应用即可在终端直接使用 `ssl`。
 
 ## 架构
 
