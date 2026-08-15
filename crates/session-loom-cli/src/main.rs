@@ -106,6 +106,7 @@ fn run(cli: Cli) -> Result<Option<String>, String> {
             let output = store
                 .list_cards(ListFilter { tool, query: None })?
                 .into_iter()
+                .take(20)
                 .map(|card| {
                     format!(
                         "{}\t{}\t{}\t{}",

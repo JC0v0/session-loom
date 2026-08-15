@@ -142,6 +142,44 @@ fn rust_cli_prints_no_rows_for_an_empty_list() {
 }
 
 #[test]
+fn rust_cli_list_limits_output_to_the_latest_twenty_sessions() {
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = Store::open(store_dir.path()).unwrap();
+    for index in 0..25 {
+        store
+            .write_session(&CanonicalSession {
+                schema_version: CANONICAL_SCHEMA_VERSION,
+                source_tool: SourceTool::Codex,
+                session_id: format!("s{index}"),
+                cwd: "/tmp/project".to_string(),
+                created_at: format!("2026-01-01T00:00:{index:02}.000Z"),
+                updated_at: format!("2026-01-01T00:00:{index:02}.000Z"),
+                model_provider: None,
+                model: None,
+                messages: vec![Message {
+                    role: Role::User,
+                    text: format!("message {index}"),
+                    tool_calls: vec![],
+                }],
+            })
+            .unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_ssl"))
+        .arg("list")
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let rows = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(rows.len(), 20);
+    assert!(rows[0].starts_with("s24\t"));
+    assert!(stdout.contains("s5\t"));
+    assert!(!stdout.contains("s4\t"));
+}
+
+#[test]
 fn rust_cli_deletes_sessions_and_manages_the_trash() {
     let store_dir = tempfile::tempdir().unwrap();
     let codex = tempfile::tempdir().unwrap();
