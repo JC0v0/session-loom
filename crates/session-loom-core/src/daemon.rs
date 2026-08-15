@@ -32,23 +32,23 @@ pub fn daemon_state(store_root: &Path) -> DaemonState {
 
 pub fn ensure_daemon_running(store_root: &Path, executable: &Path) -> DaemonState {
     let state = daemon_state(store_root);
+    #[cfg(unix)]
     if let Some(pid) = state.pid.filter(|_| state.running) {
-        #[cfg(unix)]
-        {
-            let command = process_command(pid).unwrap_or_default();
-            if is_rust_daemon_command(&command) {
-                return state;
-            }
-            if is_legacy_daemon_command(&command) {
-                if !terminate_daemon_process(pid) {
-                    return state;
-                }
-                let _ = remove_pid_file_if_matches(&pid_file(store_root), pid);
-            } else {
-                return state;
-            }
+        let command = process_command(pid).unwrap_or_default();
+        if is_rust_daemon_command(&command) {
+            return state;
         }
-        #[cfg(not(unix))]
+        if is_legacy_daemon_command(&command) {
+            if !terminate_daemon_process(pid) {
+                return state;
+            }
+            let _ = remove_pid_file_if_matches(&pid_file(store_root), pid);
+        } else {
+            return state;
+        }
+    }
+    #[cfg(not(unix))]
+    if state.running {
         return state;
     }
 
@@ -132,10 +132,12 @@ fn daemon_process_matches(pid: u32) -> bool {
     true
 }
 
+#[cfg(unix)]
 fn is_session_loom_daemon_command(command: &str) -> bool {
     is_rust_daemon_command(command) || is_legacy_daemon_command(command)
 }
 
+#[cfg(any(unix, test))]
 fn is_rust_daemon_command(command: &str) -> bool {
     let normalized = command.replace('\\', "/");
     normalized == "ssl daemon run"
@@ -144,12 +146,14 @@ fn is_rust_daemon_command(command: &str) -> bool {
         || normalized.contains("/ssl.exe daemon run")
 }
 
+#[cfg(any(unix, test))]
 fn is_legacy_daemon_command(command: &str) -> bool {
     let normalized = command.replace('\\', "/");
     (normalized.contains("/dist-cli/cli.mjs") || normalized.contains("/src/cli.ts"))
         && has_daemon_run_args(&normalized)
 }
 
+#[cfg(any(unix, test))]
 fn has_daemon_run_args(command: &str) -> bool {
     command
         .split_whitespace()
@@ -234,10 +238,10 @@ fn no_window(_command: &mut Command) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        daemon_process_matches, has_daemon_run_args, is_legacy_daemon_command,
-        is_rust_daemon_command, pid_alive, terminate_daemon_process,
-    };
+    #[cfg(unix)]
+    use super::{daemon_process_matches, pid_alive, terminate_daemon_process};
+    use super::{has_daemon_run_args, is_legacy_daemon_command, is_rust_daemon_command};
+    #[cfg(unix)]
     use std::process::Command;
 
     #[test]
