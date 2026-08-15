@@ -5,7 +5,8 @@
   "identifier": "com.sessionloom.app",
   "build": {
     "frontendDist": "../ui",
-    "beforeBuildCommand": "npm run bundle:cli"
+    "beforeDevCommand": "npm run dev:cli",
+    "beforeBuildCommand": "npm run build:cli"
   },
   "app": {
     "withGlobalTauri": true,
@@ -28,7 +29,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": {
-      "../dist-cli/cli.mjs": "dist-cli/cli.mjs"
+      "binaries/": "bin/"
     },
     "category": "DeveloperTool",
     "windows": {

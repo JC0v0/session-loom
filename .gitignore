@@ -1,8 +1,9 @@
 node_modules/
 dist/
-dist-cli/
+target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 
 .tmp-patch
 
-.debug-*
 .ui-shot*

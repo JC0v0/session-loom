@@ -4,23 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Mirror Claude Code and Codex sessions into a durable canonical format and restore them into either tool.",
-  "bin": {
-    "ssl": "./bin/ssl.js"
-  },
   "scripts": {
-    "start": "tsx src/cli.ts",
+    "start": "cargo run -p session-loom-cli --",
     "desktop": "tauri dev",
-    "bundle:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-cli/cli.mjs --log-level=warning",
+    "dev:cli": "node scripts/prepare-rust-cli.cjs",
+    "build:cli": "node scripts/prepare-rust-cli.cjs --release",
     "dist": "tauri build",
     "dist:mac": "tauri build --bundles app,dmg",
-    "typecheck": "tsc",
-    "test": "vitest run"
+    "test": "cargo test --workspace"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.4",
-    "@types/node": "^24.0.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "@tauri-apps/cli": "^2.11.4"
   }
 }
