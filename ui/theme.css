@@ -61,9 +61,10 @@ header {
   padding: 4px 11px; border-radius: 999px;
   border: 1px solid var(--border);
   background: transparent; color: var(--text-dim);
-  font-size: 11.5px; cursor: pointer; user-select: none;
+  font: inherit; font-size: 11.5px; cursor: pointer; user-select: none;
   transition: border-color var(--ease), color var(--ease), background var(--ease);
 }
+button.daemon-pill { height: 25px; }
 .daemon-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .daemon-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #C5C0B4; transition: background var(--ease), box-shadow var(--ease); }
 .daemon-pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(31, 157, 102, .6); }
@@ -137,6 +138,8 @@ aside {
 }
 .badge.codex { color: var(--codex); background: rgba(2, 112, 199, .09); }
 .badge.claude { color: var(--claude); background: rgba(194, 65, 12, .09); }
+.badge.opencode { color: #0E7C66; background: rgba(14, 124, 102, .09); }
+.badge.dsh { color: #6D3FD6; background: rgba(109, 63, 214, .09); }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }
@@ -163,6 +166,9 @@ aside {
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn.danger { border-color: rgba(217, 63, 63, .4); color: var(--danger); }
 .btn.danger:hover { background: rgba(217, 63, 63, .08); border-color: rgba(217, 63, 63, .6); }
+.btn.block { display: block; width: 100%; }
+
+.trash-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; }
 
 #conversation { flex: 1; overflow-y: auto; padding: 20px 24px 32px; }
 .msg {

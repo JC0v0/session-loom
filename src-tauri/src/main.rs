@@ -16,7 +16,7 @@ use std::{
 use tauri::{
     menu::MenuBuilder,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -270,6 +270,10 @@ fn main() {
             };
             api.prevent_close();
             let _ = window.hide();
+            // Closing hides the window to the tray instead of quitting; tell
+            // the frontend so it can reset transient views (e.g. the recycle
+            // bin) before the next open.
+            let _ = window.emit("window-hidden", ());
         })
         .invoke_handler(tauri::generate_handler![
             sessions_list,

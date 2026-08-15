@@ -69,9 +69,10 @@ header {
   padding: 4px 11px; border-radius: 999px;
   border: 1px solid var(--border);
   background: transparent; color: var(--text-dim);
-  font-size: 11.5px; cursor: pointer; user-select: none;
+  font: inherit; font-size: 11.5px; cursor: pointer; user-select: none;
   transition: border-color var(--ease), color var(--ease), background var(--ease);
 }
+button.daemon-pill { height: 25px; }
 .daemon-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .daemon-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #C5C0B4; transition: background var(--ease), box-shadow var(--ease); }
 .daemon-pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(31, 157, 102, .6); }
@@ -145,6 +146,8 @@ aside {
 }
 .badge.codex { color: var(--codex); background: rgba(2, 112, 199, .09); }
 .badge.claude { color: var(--claude); background: rgba(194, 65, 12, .09); }
+.badge.opencode { color: #0E7C66; background: rgba(14, 124, 102, .09); }
+.badge.dsh { color: #6D3FD6; background: rgba(109, 63, 214, .09); }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }
@@ -171,6 +174,9 @@ aside {
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn.danger { border-color: rgba(217, 63, 63, .4); color: var(--danger); }
 .btn.danger:hover { background: rgba(217, 63, 63, .08); border-color: rgba(217, 63, 63, .6); }
+.btn.block { display: block; width: 100%; }
+
+.trash-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; }
 
 #conversation { flex: 1; overflow-y: auto; padding: 20px 24px 32px; }
 .msg {
@@ -224,6 +230,7 @@ details.tool pre {
     <div class="brand"><img class="loom" src="icon.png" alt="" /> Session-Loom</div>
     <div class="spacer"></div>
     <span class="count-pill" id="countPill"></span>
+    <button class="daemon-pill" id="openTrash" title="查看已删除的会话">回收站</button>
     <div class="daemon-pill" id="daemonPill" title="点击启动/停止镜像守护进程">
       <span class="dot"></span><span id="daemonText">守护进程</span>
     </div>
@@ -231,13 +238,19 @@ details.tool pre {
 
   <main>
     <aside>
-      <div class="side-tools">
+      <div class="side-tools" id="sessionTools">
         <input id="search" type="search" placeholder="搜索会话内容或目录…" autocomplete="off" />
         <div class="tabs">
           <button class="tab active" data-tool="all">全部</button>
           <button class="tab" data-tool="codex">Codex</button>
           <button class="tab" data-tool="claude">Claude</button>
+          <button class="tab" data-tool="opencode">OpenCode</button>
+          <button class="tab" data-tool="dsh">DSH</button>
         </div>
+      </div>
+      <div class="side-tools" id="trashTools" style="display: none">
+        <div class="trash-note" id="trashNote">回收站 · 删除后 30 天内可恢复</div>
+        <button class="btn block" id="closeTrash">← 返回会话列表</button>
       </div>
       <div id="sessionList"></div>
     </aside>
@@ -246,7 +259,7 @@ details.tool pre {
       <div class="empty" id="emptyState">
         <div>
           <img class="empty-logo" src="icon.png" alt="" />
-          从左侧选择一个会话查看对话内容<br />选中后可将其恢复到 Claude Code 或 Codex 继续对话
+          从左侧选择一个会话查看对话内容<br />选中后可将其恢复到 Codex / Claude / OpenCode / DSH 继续对话
         </div>
       </div>
       <div id="detailBody"></div>
@@ -262,10 +275,18 @@ details.tool pre {
     get: (id) => invoke('sessions_get', { sessionId: id }),
     remove: (id) => invoke('sessions_delete', { sessionId: id }),
     restore: (id, target) => invoke('sessions_restore', { sessionId: id, target }),
+    trashList: () => invoke('trash_list'),
+    trashRestore: (id) => invoke('trash_restore', { sessionId: id }),
+    trashRemove: (id) => invoke('trash_delete', { sessionId: id }),
     daemonStatus: () => invoke('daemon_status'),
     daemonToggle: () => invoke('daemon_toggle'),
   };
-  const state = { tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '' };
+  const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH' };
+  const toolLabel = (tool) => TOOL_LABELS[tool] || tool;
+  const state = {
+    tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '',
+    mode: 'sessions', trash: [], trashSelectedId: null, trashFingerprint: '',
+  };
 
   const $ = (id) => document.getElementById(id);
   const listEl = $('sessionList');
@@ -307,7 +328,7 @@ details.tool pre {
     const scroll = listEl.scrollTop;
     try {
       const sessions = await api.list({ tool: state.tool === 'all' ? undefined : state.tool, query: state.query });
-      if (requestVersion !== sessionLoadVersion) return;
+      if (requestVersion !== sessionLoadVersion || state.mode !== 'sessions') return;
       state.sessions = sessions;
       $('countPill').textContent = sessions.length + ' 个会话';
       const fp = JSON.stringify(sessions.map((s) => s.sessionId + s.updatedAt));
@@ -334,7 +355,7 @@ details.tool pre {
       '<div class="card' + (s.sessionId === state.selectedId ? ' active' : '') + '" data-id="' + escapeHtml(s.sessionId) + '">',
       '  <div class="title">' + escapeHtml(s.title) + '</div>',
       '  <div class="meta">',
-      '    <span class="badge ' + s.sourceTool + '">' + (s.sourceTool === 'codex' ? 'Codex' : 'Claude') + '</span>',
+      '    <span class="badge ' + s.sourceTool + '">' + toolLabel(s.sourceTool) + '</span>',
       '    <span class="count">' + s.messageCount + ' 条消息</span>',
       '    <span class="rel" title="' + escapeHtml(fmtTime(s.updatedAt)) + '">' + relTime(s.updatedAt) + '</span>',
       '  </div>',
@@ -348,10 +369,15 @@ details.tool pre {
 
   function clearDetail() {
     state.selectedId = null;
+    state.trashSelectedId = null;
     emptyEl.style.display = 'grid';
     bodyEl.classList.remove('open');
     bodyEl.innerHTML = '';
-    renderList();
+    if (state.mode === 'trash') {
+      renderTrashList();
+    } else {
+      renderList();
+    }
   }
 
   async function selectSession(id) {
@@ -381,9 +407,7 @@ details.tool pre {
   function renderDetail(session) {
     emptyEl.style.display = 'none';
     bodyEl.classList.add('open');
-    const toolLabel = session.sourceTool === 'codex' ? 'Codex' : 'Claude';
-    const otherTool = session.sourceTool === 'codex' ? 'claude' : 'codex';
-    const otherLabel = session.sourceTool === 'codex' ? 'Claude' : 'Codex';
+    const otherTools = Object.keys(TOOL_LABELS).filter((tool) => tool !== session.sourceTool);
     const toolCalls = session.messages.reduce((n, m) => n + ((m.toolCalls && m.toolCalls.length) || 0), 0);
     const title = sessionTitle(session);
 
@@ -391,20 +415,25 @@ details.tool pre {
       '<div class="detail-head">',
       '  <h1>' + escapeHtml(title) + '</h1>',
       '  <div class="detail-sub">',
-      '    <span class="badge ' + session.sourceTool + '">' + toolLabel + '</span>',
+      '    <span class="badge ' + session.sourceTool + '">' + toolLabel(session.sourceTool) + '</span>',
       '    <span>' + session.messages.length + ' 条消息 · ' + toolCalls + ' 次工具调用</span>',
       '    <span>更新于 ' + escapeHtml(fmtTime(session.updatedAt)) + '</span>',
       '  </div>',
       '  <div class="detail-sub"><span class="cwd">' + escapeHtml(session.cwd) + '</span></div>',
       '  <div class="detail-sub"><span class="sid" id="sidCopy" title="点击复制会话 ID">' + escapeHtml(session.sessionId) + '</span></div>',
       '  <div class="actions">',
-      '    <button class="btn primary" id="btnRestoreCross">恢复到 ' + otherLabel + ' 继续对话</button>',
-      '    <button class="btn" id="btnRestoreSame">复制回 ' + toolLabel + '</button>',
-      '    <button class="btn danger" id="btnDelete">删除镜像</button>',
-      '  </div>',
-      '</div>',
-      '<div id="conversation"></div>',
-    ].join('\n');
+    ].concat(
+      otherTools.map((tool, index) =>
+        '    <button class="btn' + (index === 0 ? ' primary' : '') + '" id="btnRestore-' + tool + '">恢复到 ' + toolLabel(tool) + ' 继续对话</button>'
+      ),
+      [
+        '    <button class="btn" id="btnRestoreSame">复制回 ' + toolLabel(session.sourceTool) + '</button>',
+        '    <button class="btn danger" id="btnDelete">删除会话</button>',
+        '  </div>',
+        '</div>',
+        '<div id="conversation"></div>',
+      ]
+    ).join('\n');
 
     $('sidCopy').addEventListener('click', async () => {
       try {
@@ -421,21 +450,29 @@ details.tool pre {
       }
     });
 
-    $('btnRestoreCross').addEventListener('click', (e) => doRestore(session.sessionId, otherTool, e.target));
+    for (const tool of otherTools) {
+      $('btnRestore-' + tool).addEventListener('click', (e) => doRestore(session.sessionId, tool, e.target));
+    }
     $('btnRestoreSame').addEventListener('click', (e) => doRestore(session.sessionId, session.sourceTool, e.target));
     $('btnDelete').addEventListener('click', async () => {
-      if (!confirm('确定删除这条会话镜像吗?\n\n' + title + '\n\n只会删除 session-loom 的镜像数据, 不影响原始会话文件。')) return;
+      if (!confirm('确定删除这条会话吗?\n\n' + title + '\n\n将同时尝试删除 ' + toolLabel(session.sourceTool) + ' 中的原始会话文件，镜像会移入回收站保留 30 天。')) return;
       try {
-        await api.remove(session.sessionId);
-        toast('镜像已删除');
-        state.fingerprint = '';
-        clearDetail();
-        loadSessions(false);
+        const res = await api.remove(session.sessionId);
+        toast(res.message, res.ok);
+        if (res.ok) {
+          state.fingerprint = '';
+          clearDetail();
+          loadSessions(false);
+        }
       } catch (e) {
         toast('删除失败: ' + (e.message || e), false);
       }
     });
 
+    renderConversation(session);
+  }
+
+  function renderConversation(session) {
     const conv = $('conversation');
     const frag = document.createDocumentFragment();
     for (const m of session.messages) {
@@ -476,6 +513,151 @@ details.tool pre {
       btn.textContent = old;
     }
   }
+
+  let trashLoadVersion = 0;
+  async function loadTrash(keepScroll = true) {
+    const requestVersion = ++trashLoadVersion;
+    const scroll = listEl.scrollTop;
+    try {
+      const entries = await api.trashList();
+      if (requestVersion !== trashLoadVersion || state.mode !== 'trash') return;
+      state.trash = entries;
+      $('trashNote').textContent = entries.length
+        ? '回收站 · ' + entries.length + ' 项 · 删除后 30 天内可恢复'
+        : '回收站是空的';
+      $('countPill').textContent = entries.length + ' 个回收站条目';
+      const fp = JSON.stringify(entries.map((e) => e.session.sessionId + e.deletedAt));
+      if (fp !== state.trashFingerprint) {
+        state.trashFingerprint = fp;
+        renderTrashList();
+      }
+      if (keepScroll) listEl.scrollTop = scroll;
+      if (state.trashSelectedId && !entries.some((e) => e.session.sessionId === state.trashSelectedId)) {
+        clearDetail();
+      }
+    } catch (e) {
+      if (requestVersion !== trashLoadVersion) return;
+      toast('加载回收站失败: ' + (e.message || e), false);
+    }
+  }
+
+  function renderTrashList() {
+    if (!state.trash.length) {
+      listEl.innerHTML = '<div class="empty">回收站是空的</div>';
+      return;
+    }
+    listEl.innerHTML = state.trash.map((entry) => {
+      const s = entry.session;
+      const active = s.sessionId === state.trashSelectedId ? ' active' : '';
+      return [
+        '<div class="card' + active + '" data-id="' + escapeHtml(s.sessionId) + '">',
+        '  <div class="title">' + escapeHtml(sessionTitle(s)) + '</div>',
+        '  <div class="meta">',
+        '    <span class="badge ' + s.sourceTool + '">' + toolLabel(s.sourceTool) + '</span>',
+        '    <span class="count">' + s.messages.length + ' 条消息</span>',
+        '    <span class="rel" title="' + escapeHtml(fmtTime(entry.deletedAt)) + '">删除于 ' + relTime(entry.deletedAt) + '</span>',
+        '  </div>',
+        '  <div class="cwd" title="' + escapeHtml(s.cwd) + '">' + escapeHtml(s.cwd) + '</div>',
+        '</div>',
+      ].join('\n');
+    }).join('\n');
+    for (const card of listEl.querySelectorAll('.card')) {
+      card.addEventListener('click', () => selectTrashEntry(card.dataset.id));
+    }
+  }
+
+  async function selectTrashEntry(id) {
+    state.trashSelectedId = id;
+    renderTrashList();
+    const entry = state.trash.find((e) => e.session.sessionId === id);
+    if (entry) renderTrashDetail(entry);
+  }
+
+  function renderTrashDetail(entry) {
+    const session = entry.session;
+    emptyEl.style.display = 'none';
+    bodyEl.classList.add('open');
+    const toolCalls = session.messages.reduce((n, m) => n + ((m.toolCalls && m.toolCalls.length) || 0), 0);
+    const title = sessionTitle(session);
+
+    bodyEl.innerHTML = [
+      '<div class="detail-head">',
+      '  <h1>' + escapeHtml(title) + '</h1>',
+      '  <div class="detail-sub">',
+      '    <span class="badge ' + session.sourceTool + '">' + toolLabel(session.sourceTool) + '</span>',
+      '    <span>' + session.messages.length + ' 条消息 · ' + toolCalls + ' 次工具调用</span>',
+      '    <span>删除于 ' + escapeHtml(fmtTime(entry.deletedAt)) + '</span>',
+      '  </div>',
+      '  <div class="detail-sub"><span class="cwd">' + escapeHtml(session.cwd) + '</span></div>',
+      '  <div class="actions">',
+      '    <button class="btn primary" id="btnTrashRestore">恢复到会话列表</button>',
+      '    <button class="btn danger" id="btnTrashDelete">彻底删除</button>',
+      '    <button class="btn" id="btnTrashBack">← 返回回收站</button>',
+      '  </div>',
+      '</div>',
+      '<div id="conversation"></div>',
+    ].join('\n');
+
+    $('btnTrashRestore').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try {
+        await api.trashRestore(session.sessionId);
+        toast('已恢复到会话列表');
+        state.trashFingerprint = '';
+        clearDetail();
+        loadTrash(false);
+      } catch (err) {
+        toast('恢复失败: ' + (err.message || err), false);
+        e.target.disabled = false;
+      }
+    });
+    $('btnTrashDelete').addEventListener('click', async (e) => {
+      if (!confirm('确定彻底删除这条会话吗?\n\n' + title + '\n\n该操作无法撤销。')) return;
+      e.target.disabled = true;
+      try {
+        await api.trashRemove(session.sessionId);
+        toast('已彻底删除');
+        state.trashFingerprint = '';
+        clearDetail();
+        loadTrash(false);
+      } catch (err) {
+        toast('删除失败: ' + (err.message || err), false);
+        e.target.disabled = false;
+      }
+    });
+    $('btnTrashBack').addEventListener('click', () => clearDetail());
+
+    renderConversation(session);
+  }
+
+  function enterTrashMode() {
+    state.mode = 'trash';
+    $('sessionTools').style.display = 'none';
+    $('trashTools').style.display = 'flex';
+    $('openTrash').style.display = 'none';
+    clearDetail();
+    state.trashFingerprint = '';
+    loadTrash(false);
+  }
+
+  function exitTrashMode() {
+    state.mode = 'sessions';
+    $('trashTools').style.display = 'none';
+    $('sessionTools').style.display = 'flex';
+    $('openTrash').style.display = '';
+    clearDetail();
+    state.fingerprint = '';
+    loadSessions(false);
+  }
+
+  $('openTrash').addEventListener('click', enterTrashMode);
+  $('closeTrash').addEventListener('click', exitTrashMode);
+
+  // The window close button hides to the tray. Reset transient views so the
+  // next open always lands on the session list instead of the recycle bin.
+  window.__TAURI__.event.listen('window-hidden', () => {
+    if (state.mode === 'trash') exitTrashMode();
+  }).catch(() => {});
 
   async function refreshDaemon() {
     try {
@@ -518,7 +700,11 @@ details.tool pre {
 
   setInterval(() => {
     if (!document.hidden) {
-      loadSessions();
+      if (state.mode === 'trash') {
+        loadTrash();
+      } else {
+        loadSessions();
+      }
       refreshDaemon();
     }
   }, 3000);
