@@ -117,6 +117,19 @@ impl Store {
         CanonicalSession::from_json(&payload)
     }
 
+    /// Whether the store currently holds at least one session. The watcher
+    /// uses this to notice a wiped store (database deleted and recreated
+    /// while the daemon kept running) and re-mirror every source file.
+    pub fn has_sessions(&self) -> Result<bool, String> {
+        let connection = self.connection()?;
+        let count = connection
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(count > 0)
+    }
+
     pub fn list_sessions(
         &self,
         filter_tool: Option<SourceTool>,
@@ -299,6 +312,19 @@ impl Store {
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(|error| error.to_string())?;
+        // If the database file was deleted while a daemon kept running, a
+        // bare Connection::open above recreates an empty file without the
+        // schema. Re-create the schema so every operation self-heals.
+        let has_sessions_table = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap_or(false);
+        if !has_sessions_table {
+            create_schema(&connection)?;
+        }
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(|error| error.to_string())?;

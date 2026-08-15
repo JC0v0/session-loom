@@ -34,6 +34,14 @@ impl SessionWatcher {
     }
 
     pub fn scan_once(&mut self) {
+        // If the store was wiped (database deleted and recreated while this
+        // watcher kept running), the in-memory signature map would otherwise
+        // keep skipping unchanged source files forever. An empty store means
+        // a fresh start: drop the seen signatures so every source file is
+        // mirrored again. Tombstoned ids are still skipped by mirror_file.
+        if !self.store.has_sessions().unwrap_or(true) {
+            self.seen.clear();
+        }
         let trash = Trash::new(self.store.root());
         let _ = trash.purge_expired(TRASH_RETENTION);
         for target in &self.targets {

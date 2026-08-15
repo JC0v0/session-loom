@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand};
 use session_loom_core::{
     canonical::SourceTool,
-    daemon, paths,
+    daemon, delete, paths,
     restore::{restore_session, RestoreRoots},
     store::{ListFilter, Store},
+    trash::{restore_from_trash, Trash},
     watcher::{SessionWatcher, WatchTarget},
 };
 use std::{process::ExitCode, str::FromStr, time::Duration};
@@ -41,6 +42,20 @@ enum Command {
     Export {
         session_id: String,
     },
+    Delete {
+        session_id: String,
+    },
+    Trash {
+        #[command(subcommand)]
+        action: TrashAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum TrashAction {
+    List,
+    Restore { session_id: String },
+    Delete { session_id: String },
 }
 
 #[derive(Subcommand)]
@@ -122,6 +137,52 @@ fn run(cli: Cli) -> Result<Option<String>, String> {
         Command::Export { session_id } => {
             let store = Store::from_environment()?;
             Ok(Some(store.export_session(&session_id)?))
+        }
+        Command::Delete { session_id } => {
+            let store = Store::from_environment()?;
+            let result =
+                delete::delete_session(&store, &session_id, &RestoreRoots::from_environment());
+            if result.ok {
+                Ok(Some(result.message))
+            } else {
+                Err(result.message)
+            }
+        }
+        Command::Trash { action } => {
+            let store = Store::from_environment()?;
+            let trash = Trash::new(store.root());
+            match action {
+                TrashAction::List => {
+                    let output = trash
+                        .list()?
+                        .into_iter()
+                        .map(|entry| {
+                            format!(
+                                "{}\t{}\t{}\t{}",
+                                entry.session.session_id,
+                                entry.session.source_tool.as_str(),
+                                entry.session.cwd,
+                                entry.deleted_at
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    Ok(Some(output))
+                }
+                TrashAction::Restore { session_id } => {
+                    let session = restore_from_trash(&store, &trash, &session_id)?;
+                    Ok(Some(format!(
+                        "restored {} back to the session list",
+                        session.session_id
+                    )))
+                }
+                TrashAction::Delete { session_id } => {
+                    trash.remove(&session_id)?;
+                    Ok(Some(format!(
+                        "permanently removed {session_id} from the trash"
+                    )))
+                }
+            }
         }
     }
 }

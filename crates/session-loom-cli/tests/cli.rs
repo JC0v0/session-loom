@@ -140,3 +140,72 @@ fn rust_cli_prints_no_rows_for_an_empty_list() {
     assert!(list.stdout.is_empty());
     assert!(list.stderr.is_empty());
 }
+
+#[test]
+fn rust_cli_deletes_sessions_and_manages_the_trash() {
+    let store_dir = tempfile::tempdir().unwrap();
+    let codex = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    seed_store(store_dir.path());
+    let binary = env!("CARGO_BIN_EXE_ssl");
+
+    // Deleting a missing session fails with an error on stderr.
+    let missing = Command::new(binary)
+        .args(["delete", "missing"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("session not found"));
+
+    let delete = Command::new(binary)
+        .args(["delete", "s1"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .env("CODEX_SESSIONS_ROOT", codex.path())
+        .env("CLAUDE_ROOT", claude.path())
+        .output()
+        .unwrap();
+    assert!(
+        delete.status.success(),
+        "{}",
+        String::from_utf8_lossy(&delete.stderr)
+    );
+    let store = Store::open(store_dir.path()).unwrap();
+    assert!(store.read_session("s1").is_err());
+
+    let trash_list = Command::new(binary)
+        .args(["trash", "list"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+    assert!(trash_list.status.success());
+    assert!(String::from_utf8_lossy(&trash_list.stdout).contains("s1\tcodex\t/tmp/project"));
+
+    let trash_restore = Command::new(binary)
+        .args(["trash", "restore", "s1"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        trash_restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&trash_restore.stderr)
+    );
+    let store = Store::open(store_dir.path()).unwrap();
+    assert_eq!(store.read_session("s1").unwrap().session_id, "s1");
+
+    let trash_delete = Command::new(binary)
+        .args(["trash", "delete", "s1"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+    assert!(trash_delete.status.success());
+
+    let trash_list = Command::new(binary)
+        .args(["trash", "list"])
+        .env("SESSION_LOOM_STORE", store_dir.path())
+        .output()
+        .unwrap();
+    assert!(trash_list.status.success());
+    assert!(trash_list.stdout.is_empty());
+}

@@ -90,6 +90,62 @@ fn watcher_retries_files_that_do_not_have_session_metadata_yet() {
     assert_eq!(store.list_sessions(None).unwrap().len(), 1);
 }
 
+#[test]
+fn watcher_remirrors_sources_after_the_store_is_wiped_and_keeps_tombstones() {
+    use session_loom_core::{delete::delete_session, restore::RestoreRoots, trash::Trash};
+
+    let source = tempfile::tempdir().unwrap();
+    let store_root = tempfile::tempdir().unwrap();
+    let store = Store::open(store_root.path()).unwrap();
+    for (id, text) in [("s1", "hello"), ("s2", "keep me")] {
+        fs::write(
+            source.path().join(format!("{id}.jsonl")),
+            [
+                json!({"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"session_id":id,"cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z"}}),
+                json!({"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}}),
+            ]
+            .into_iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        )
+        .unwrap();
+    }
+    let mut watcher = SessionWatcher::new(
+        store.clone(),
+        vec![WatchTarget {
+            source_tool: SourceTool::Codex,
+            root: source.path().to_path_buf(),
+        }],
+    );
+    watcher.scan_once();
+    assert!(store.read_session("s1").is_ok());
+    assert!(store.read_session("s2").is_ok());
+
+    // Tombstone s2: its source survives (the roots point at missing dirs)
+    // while the mirror row is removed and a trash entry retained.
+    let broken_roots = RestoreRoots {
+        codex: store_root.path().join("missing-codex"),
+        claude: store_root.path().join("missing-claude"),
+        opencode: store_root.path().join("missing-opencode.db"),
+        dsh: store_root.path().join("missing-dsh"),
+    };
+    let result = delete_session(&store, "s2", &broken_roots);
+    assert!(result.ok, "{}", result.message);
+    assert!(store.read_session("s2").is_err());
+    assert!(Trash::new(store.root()).contains("s2"));
+
+    // Wipe the database, like deleting the session data while the daemon
+    // keeps running. The unchanged files must be mirrored again into the
+    // fresh store, while the tombstoned session stays deleted.
+    fs::remove_file(store.db_path()).unwrap();
+    watcher.scan_once();
+
+    assert_eq!(store.read_session("s1").unwrap().messages[0].text, "hello");
+    assert!(store.read_session("s2").is_err());
+    assert!(store.has_sessions().unwrap());
+}
+
 #[cfg(unix)]
 #[test]
 fn watcher_does_not_follow_directory_symlink_cycles() {
