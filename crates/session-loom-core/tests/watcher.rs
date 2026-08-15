@@ -146,6 +146,57 @@ fn watcher_remirrors_sources_after_the_store_is_wiped_and_keeps_tombstones() {
     assert!(store.has_sessions().unwrap());
 }
 
+#[test]
+fn watcher_does_not_mirror_claude_history_as_a_session() {
+    // Restoring a session into a Claude root writes a transcript file plus a
+    // history.jsonl entry sharing the same sessionId. The next scan must
+    // mirror the transcript and ignore history.jsonl entirely: without this,
+    // the history entry overwrites the session as an empty ghost.
+    let source = tempfile::tempdir().unwrap();
+    let store_root = tempfile::tempdir().unwrap();
+    let store = Store::open(store_root.path()).unwrap();
+    let projects = source.path().join("projects");
+    fs::create_dir_all(&projects).unwrap();
+    fs::write(
+        projects.join("s2.jsonl"),
+        [
+            json!({"type":"mode","mode":"normal","sessionId":"s2"}),
+            json!({"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"s2","cwd":"/tmp/project","timestamp":"2026-01-01T00:00:00.000Z"}),
+        ]
+        .into_iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("\n"),
+    )
+    .unwrap();
+    fs::write(
+        source.path().join("history.jsonl"),
+        json!({
+            "display": "hello",
+            "pastedContents": {},
+            "timestamp": 1767225600000_i64,
+            "project": "/tmp/project",
+            "sessionId": "s2"
+        })
+        .to_string()
+            + "\n",
+    )
+    .unwrap();
+    let mut watcher = SessionWatcher::new(
+        store.clone(),
+        vec![WatchTarget {
+            source_tool: SourceTool::Claude,
+            root: source.path().to_path_buf(),
+        }],
+    );
+
+    watcher.scan_once();
+
+    assert_eq!(store.list_sessions(None).unwrap().len(), 1);
+    let session = store.read_session("s2").unwrap();
+    assert_eq!(session.cwd, "/tmp/project");
+    assert_eq!(session.messages[0].text, "hello");
+}
 #[cfg(unix)]
 #[test]
 fn watcher_does_not_follow_directory_symlink_cycles() {

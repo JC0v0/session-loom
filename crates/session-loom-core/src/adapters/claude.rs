@@ -110,6 +110,12 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         }
     }
 
+    if messages.is_empty() {
+        // Files like history.jsonl carry a `sessionId` on every entry but no
+        // transcript records. Treating them as sessions would mirror empty
+        // ghosts that can overwrite the real session sharing the same id.
+        return Err("not a Claude session transcript: no user or assistant messages".to_string());
+    }
     attach_tool_outputs(&mut messages, &outputs);
     Ok(CanonicalSession {
         schema_version: CANONICAL_SCHEMA_VERSION,

@@ -124,7 +124,8 @@ fn trash_round_trips_and_purges_expired_entries() {
     assert!(trash.contains("s1"));
     assert_eq!(trash.get("s1").unwrap().session.session_id, "s1");
 
-    // A zero retention window purges every entry (age is always positive).
+    // A zero retention window purges every entry, even one added in the
+    // same millisecond (its age rounds to zero).
     assert_eq!(trash.purge_expired(Duration::ZERO).unwrap(), 1);
     assert!(!trash.contains("s1"));
 

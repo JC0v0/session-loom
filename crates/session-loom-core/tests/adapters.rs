@@ -151,6 +151,28 @@ fn parses_claude_messages_calls_and_tool_results() {
 }
 
 #[test]
+fn claude_parse_rejects_files_without_a_transcript() {
+    // history.jsonl entries carry a `sessionId` but no user/assistant records;
+    // parsing them as sessions would create empty ghost cards in the store.
+    let history_entry = json!({
+        "display": "帮我修一下这个 bug",
+        "pastedContents": {},
+        "timestamp": 1767225600000_i64,
+        "project": r"C:\proj",
+        "sessionId": "s2"
+    })
+    .to_string();
+
+    assert!(claude::parse_session(&history_entry)
+        .unwrap_err()
+        .contains("no user or assistant messages"));
+    assert!(claude::parse_session(
+        &json!({"type":"mode","mode":"normal","sessionId":"s2"}).to_string()
+    )
+    .is_err());
+}
+
+#[test]
 fn writes_claude_session_file_and_history() {
     let temp = tempfile::tempdir().unwrap();
     let mut session = sample_session(SourceTool::Claude);
