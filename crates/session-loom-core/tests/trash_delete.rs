@@ -1,5 +1,5 @@
 use session_loom_core::{
-    adapters::{dsh, opencode},
+    adapters::{dsh, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
     delete::delete_session,
     restore::RestoreRoots,
@@ -33,6 +33,7 @@ fn roots(codex: &Path, claude: &Path, opencode: &Path, dsh: &Path) -> RestoreRoo
         claude: claude.to_path_buf(),
         opencode: opencode.to_path_buf(),
         dsh: dsh.to_path_buf(),
+        pi: dsh.to_path_buf(),
     }
 }
 
@@ -325,5 +326,38 @@ fn delete_dsh_removes_session_directory() {
     );
     assert!(deleted.ok, "{}", deleted.message);
     assert!(dsh::session_log_files(dsh.path()).is_empty());
+    assert!(Trash::new(store.root()).contains(&result.session_id));
+}
+
+#[test]
+fn delete_pi_removes_session_file() {
+    let store_temp = tempfile::tempdir().unwrap();
+    let pi_root = tempfile::tempdir().unwrap();
+    let codex = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    let opencode = tempfile::tempdir().unwrap();
+    let dsh = tempfile::tempdir().unwrap();
+    let store = Store::open(store_temp.path()).unwrap();
+    let session = sample("pi1", SourceTool::Pi);
+    let result = pi::write_session_to_root(&session, pi_root.path()).unwrap();
+    let mirrored = pi::parse_session(&fs::read_to_string(&result.session_file).unwrap()).unwrap();
+    store
+        .write_session_from(&mirrored, Some(&result.session_file))
+        .unwrap();
+
+    let deleted = delete_session(
+        &store,
+        &result.session_id,
+        &RestoreRoots {
+            codex: codex.path().to_path_buf(),
+            claude: claude.path().to_path_buf(),
+            opencode: opencode.path().join("opencode.db"),
+            dsh: dsh.path().to_path_buf(),
+            pi: pi_root.path().to_path_buf(),
+        },
+    );
+    assert!(deleted.ok, "{}", deleted.message);
+    assert!(deleted.source_deleted, "{}", deleted.message);
+    assert!(!result.session_file.exists());
     assert!(Trash::new(store.root()).contains(&result.session_id));
 }

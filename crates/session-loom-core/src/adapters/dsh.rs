@@ -234,10 +234,137 @@ pub fn write_session_to_root(
         LogCompression::None => "session.jsonl",
     });
     fs::write(&log_file, encoded).map_err(|error| error.to_string())?;
+    if let Err(error) = register_workspace(root, &session.cwd, &session_id) {
+        let _ = fs::remove_dir_all(&directory);
+        return Err(error);
+    }
     Ok(DshWriteResult {
         session_id,
         log_file,
     })
+}
+
+/// Registers a restored session in DSH's workspace index. DSH uses this
+/// sidecar to associate a session id with the project shown in its UI; the
+/// cwd in the session header alone is not enough for that association.
+fn register_workspace(root: &Path, cwd: &str, session_id: &str) -> Result<(), String> {
+    if cwd.trim().is_empty() {
+        return Ok(());
+    }
+    let dsh_home = std::env::var("DSH_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| root.parent().unwrap_or(root).to_path_buf());
+    let workspace_file = dsh_home.join("storages").join("workspace.json");
+    if let Some(parent) = workspace_file.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    let mut document = if workspace_file.exists() {
+        let payload = fs::read_to_string(&workspace_file).map_err(|error| error.to_string())?;
+        serde_json::from_str::<Value>(&payload).map_err(|error| error.to_string())?
+    } else {
+        json!({
+            "unit": { "name": "workspace", "version": 2 },
+            "global": { "initialized": true, "workspaceIds": [], "archivedSessionIds": [] },
+            "tables": { "workspaces": {} }
+        })
+    };
+
+    let document_object = document
+        .as_object_mut()
+        .ok_or_else(|| "DSH workspace index is not an object".to_string())?;
+    let normalized_cwd = normalize_workspace_path(cwd);
+    let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    let workspace_id;
+    {
+        let tables = document_object
+            .entry("tables")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| "DSH workspace tables are not an object".to_string())?;
+        let workspaces = tables
+            .entry("workspaces")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| "DSH workspace table is not an object".to_string())?;
+
+        let existing_id = workspaces.iter().find_map(|(id, value)| {
+            (value
+                .get("path")
+                .and_then(Value::as_str)
+                .map(normalize_workspace_path)
+                .as_deref()
+                == Some(normalized_cwd.as_str()))
+            .then_some(id.clone())
+        });
+        workspace_id = existing_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        if !workspaces.contains_key(&workspace_id) {
+            workspaces.insert(
+                workspace_id.clone(),
+                json!({
+                    "path": cwd,
+                    "title": workspace_title(cwd),
+                    "sessionIds": [],
+                    "createdAt": now,
+                    "updatedAt": now
+                }),
+            );
+        }
+
+        let workspace = workspaces
+            .get_mut(&workspace_id)
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| "DSH workspace entry is not an object".to_string())?;
+        let session_ids = workspace
+            .entry("sessionIds")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| "DSH workspace session list is not an array".to_string())?;
+        if !session_ids
+            .iter()
+            .any(|value| value.as_str() == Some(session_id))
+        {
+            session_ids.push(json!(session_id));
+        }
+        workspace.insert("updatedAt".to_string(), json!(now));
+    }
+
+    let global = document_object
+        .entry("global")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "DSH workspace global table is not an object".to_string())?;
+    let workspace_ids = global
+        .entry("workspaceIds")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "DSH workspace id list is not an array".to_string())?;
+    if !workspace_ids
+        .iter()
+        .any(|value| value.as_str() == Some(&workspace_id))
+    {
+        workspace_ids.push(json!(workspace_id));
+    }
+
+    let output = serde_json::to_string_pretty(&document).map_err(|error| error.to_string())?;
+    fs::write(workspace_file, format!("{output}\n")).map_err(|error| error.to_string())
+}
+
+fn normalize_workspace_path(path: &str) -> String {
+    path.trim_end_matches(['/', '\\'])
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn workspace_title(cwd: &str) -> String {
+    let trimmed = cwd.trim_end_matches(['/', '\\']);
+    trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 /// Groups rendered events into plaintext JSONL batches, one frame per

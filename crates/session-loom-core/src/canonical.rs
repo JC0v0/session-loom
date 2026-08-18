@@ -10,6 +10,7 @@ pub enum SourceTool {
     Claude,
     OpenCode,
     Dsh,
+    Pi,
 }
 
 impl SourceTool {
@@ -19,6 +20,7 @@ impl SourceTool {
             Self::Claude => "claude",
             Self::OpenCode => "opencode",
             Self::Dsh => "dsh",
+            Self::Pi => "pi",
         }
     }
 }
@@ -32,6 +34,7 @@ impl std::str::FromStr for SourceTool {
             "claude" => Ok(Self::Claude),
             "opencode" => Ok(Self::OpenCode),
             "dsh" => Ok(Self::Dsh),
+            "pi" => Ok(Self::Pi),
             _ => Err(format!("unknown source tool: {value}")),
         }
     }

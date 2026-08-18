@@ -1,20 +1,21 @@
 # Session-Loom
 
-把 **Claude Code**、**Codex**、**OpenCode** 和 **DeepSeek Harness** 的会话持续镜像到一份统一、带版本号的 canonical 格式中,并能将任意一份会话**恢复到另一个工具里原生续接**——不复制粘贴、不重新解释上下文。
+把 **Claude Code**、**Codex**、**OpenCode**、**DeepSeek Harness** 和 **Pi** 的会话持续镜像到一份统一、带版本号的 canonical 格式中,并能将任意一份会话**恢复到另一个工具里原生续接**——不复制粘贴、不重新解释上下文。
 
-这四个工具各自使用私有的会话存储格式,官方都没有双向导入能力。Session-Loom 通过「镜像 → 统一格式 → 恢复」补上这块空白:
+这五个工具各自使用私有的会话存储格式,官方都没有双向导入能力。Session-Loom 通过「镜像 → 统一格式 → 恢复」补上这块空白:
 
 ```
 ~/.codex/sessions ────────┐
 ~/.claude/projects ───────┤
 opencode 数据库 ───────────┼─→ 守护进程(轮询镜像)─→ canonical 会话(SQLite)─→ 按需恢复 ─→ 对端工具原生会话
-~/.dsh/sessions ──────────┘
+~/.dsh/sessions ──────────┤
+~/.pi/agent/sessions ──────┘
 ```
 
 ## 特性
 
-- **多向会话迁移**:Codex 会话可恢复为 Claude Code、OpenCode 或 DeepSeek Harness 会话,反之亦然;恢复结果能被 `claude --resume` / `codex resume` 及 OpenCode、DSH 各自的会话列表原生列出并续接。
-- **持续镜像**:后台守护进程以 2 秒轮询监听四个渠道的会话目录/数据库,会话一旦新增或更新即同步进 canonical 存储;镜像进程**只读不写**被监听数据,不会自回声。
+- **多向会话迁移**:Codex 会话可恢复为 Claude Code、OpenCode、DeepSeek Harness 或 Pi 会话,反之亦然;恢复结果能被各工具的原生会话列表列出并续接。
+- **持续镜像**:后台守护进程以 2 秒轮询监听五个渠道的会话目录/数据库,会话一旦新增或更新即同步进 canonical 存储;镜像进程**只读不写**被监听数据,不会自回声。
 - **canonical 中间格式**:会话统一为带 schema 版本的结构(sourceTool、sessionId、cwd、时间戳、有序消息与工具调用),持久化在 SQLite 中,为归档、搜索、跨机同步留好扩展点。
 - **只迁移对话**:迁移用户/助手消息与工具调用记录(name、input、output 原样保留,**不重新执行**),丢弃源工具的系统提示词与 IDE 注入的上下文。
 - **真删除与回收站**:删除会话会尽力删除原始会话文件,并把镜像归档到 30 天回收站;回收站内可恢复或彻底删除,墓碑机制保证被删会话不会被守护进程重新镜像回来。
@@ -28,7 +29,7 @@ Rust workspace,三个 crate 共享一份领域逻辑:
 ```
 session-loom/
 ├── crates/
-│   ├── session-loom-core/     # 核心:canonical 模型、四渠道读写适配器、
+│   ├── session-loom-core/     # 核心:canonical 模型、五渠道读写适配器、
 │   │                          # SQLite 存储、恢复、轮询 watcher、删除/回收站、守护进程生命周期
 │   └── session-loom-cli/      # ssl 命令行(clap),只做参数解析,逻辑全部在 core
 ├── src-tauri/                 # Tauri 2 桌面壳,直接复用 session-loom-core;
@@ -84,8 +85,8 @@ npm run dist:mac    # macOS:.app 与 DMG
 
 ```text
 ssl daemon [run|start|stop|status]       管理后台镜像守护进程(默认 start)
-ssl restore --to <codex|claude|opencode|dsh> [id]  恢复会话到目标工具;省略 id 时取最近一条
-ssl list [--tool <codex|claude|opencode|dsh>]      列出 canonical 会话
+ssl restore --to <codex|claude|opencode|dsh|pi> [id]  恢复会话到目标工具;省略 id 时取最近一条
+ssl list [--tool <codex|claude|opencode|dsh|pi>]      列出 canonical 会话
 ssl search <关键词…>                     按内容或目录搜索会话
 ssl export <id>                          导出一条会话的 canonical JSON
 ssl delete <id>                          删除会话(镜像 + 原始会话),归档进 30 天回收站
@@ -98,7 +99,7 @@ ssl trash delete <id>                    彻底删除回收站中的会话(不�
 
 ## 桌面应用
 
-- 左侧:搜索框 + 全部 / Codex / Claude / OpenCode / DSH 标签页 + 会话卡片列表(标题、消息数、相对时间、工作目录);「回收站」按钮进入回收站模式,列出已删除会话并可恢复或彻底删除。
+- 左侧:搜索框 + 全部 / Codex / Claude / OpenCode / DSH / Pi 标签页 + 会话卡片列表(标题、消息数、相对时间、工作目录);「回收站」按钮进入回收站模式,列出已删除会话并可恢复或彻底删除。
 - 右侧:对话详情——逐条消息与可折叠的工具调用记录,一键「恢复到其他工具继续对话」「复制回本工具」「删除会话(移入回收站)」。
 - 顶栏:守护进程运行状态,点击即可启动/停止镜像。
 
@@ -114,6 +115,7 @@ ssl trash delete <id>                    彻底删除回收站中的会话(不�
 | Claude 会话监听目录 / 恢复根目录 | `~/.claude/projects` / `~/.claude` | `CLAUDE_ROOT` |
 | OpenCode 数据库 / 数据目录 | `<data>/opencode/opencode.db` | `OPENCODE_DB`、`OPENCODE_DATA_DIR`(兼容 `XDG_DATA_HOME`) |
 | DeepSeek Harness 会话监听/恢复根目录 | `~/.dsh/sessions` | `DSH_SESSIONS_ROOT`(兼容 `DSH_HOME`) |
+| Pi 会话监听/恢复根目录 | `~/.pi/agent/sessions` | `PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR` |
 
 > 注意:会话数据库、对话内容属于本地隐私数据,请勿提交到仓库。
 

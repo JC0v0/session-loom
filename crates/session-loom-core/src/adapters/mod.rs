@@ -6,6 +6,7 @@ pub mod claude;
 pub mod codex;
 pub mod dsh;
 pub mod opencode;
+pub mod pi;
 
 fn json_text(value: Option<&Value>) -> String {
     match value {
@@ -49,6 +50,17 @@ fn push_tool_call(messages: &mut Vec<Message>, call: ToolCall) {
             tool_calls: vec![call],
         });
     }
+}
+
+pub fn decode_claude_project(encoded: &str) -> String {
+    let mut chars = encoded.chars();
+    if let (Some(drive), Some('-'), Some('-')) = (chars.next(), chars.next(), chars.next()) {
+        return format!("{drive}:\\{}", chars.collect::<String>().replace('-', "\\"));
+    }
+    if let Some(rest) = encoded.strip_prefix('-') {
+        return format!("/{}", rest.replace('-', "/"));
+    }
+    encoded.replace('-', "/")
 }
 
 pub fn encode_claude_project(cwd: &str) -> String {

@@ -148,6 +148,7 @@ aside {
 .badge.claude { color: var(--claude); background: rgba(194, 65, 12, .09); }
 .badge.opencode { color: #0E7C66; background: rgba(14, 124, 102, .09); }
 .badge.dsh { color: #6D3FD6; background: rgba(109, 63, 214, .09); }
+.badge.pi { color: #A05A00; background: rgba(160, 90, 0, .10); }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }
@@ -246,6 +247,7 @@ details.tool pre {
           <button class="tab" data-tool="claude">Claude</button>
           <button class="tab" data-tool="opencode">OpenCode</button>
           <button class="tab" data-tool="dsh">DSH</button>
+          <button class="tab" data-tool="pi">Pi</button>
         </div>
       </div>
       <div class="side-tools" id="trashTools" style="display: none">
@@ -281,7 +283,7 @@ details.tool pre {
     daemonStatus: () => invoke('daemon_status'),
     daemonToggle: () => invoke('daemon_toggle'),
   };
-  const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH' };
+  const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH', pi: 'Pi' };
   const toolLabel = (tool) => TOOL_LABELS[tool] || tool;
   const state = {
     tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '',

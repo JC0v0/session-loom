@@ -1,7 +1,7 @@
 use rusqlite::params;
 use serde_json::{json, Value};
 use session_loom_core::{
-    adapters::{claude, codex, dsh, opencode},
+    adapters::{claude, codex, dsh, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, ToolCall, CANONICAL_SCHEMA_VERSION},
 };
 
@@ -151,6 +151,29 @@ fn parses_claude_messages_calls_and_tool_results() {
 }
 
 #[test]
+fn claude_file_recovers_project_from_encoded_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("projects").join("C--Users-Administrator");
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join("session-from-file.jsonl");
+    std::fs::write(
+        &file,
+        json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{ "type": "text", "text": "hello" }] },
+            "timestamp": "2026-01-01T00:00:00.000Z"
+        })
+        .to_string()
+            + "\n",
+    )
+    .unwrap();
+
+    let session = claude::parse_session_file(&file).unwrap();
+    assert_eq!(session.session_id, "session-from-file");
+    assert_eq!(session.cwd, r"C:\Users\Administrator");
+}
+
+#[test]
 fn writes_claude_session_file_and_history() {
     let temp = tempfile::tempdir().unwrap();
     let mut session = sample_session(SourceTool::Claude);
@@ -181,6 +204,47 @@ fn claude_restore_removes_the_session_when_history_cannot_be_updated() {
     let project = temp.path().join("projects").join("C--proj");
     assert!(project.exists());
     assert!(std::fs::read_dir(project).unwrap().next().is_none());
+}
+
+#[test]
+fn pi_jsonl_round_trips_messages_and_tool_calls() {
+    let fixture = [
+        json!({"type":"session","version":3,"id":"pi1","timestamp":"2026-01-01T00:00:00.000Z","cwd":r"C:\\proj"}),
+        json!({"type":"model_change","id":"m1","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","provider":"custom","modelId":"deepseek-v4-pro"}),
+        json!({"type":"message","id":"u1","parentId":"m1","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"hello","timestamp":1767225601000_i64}}),
+        json!({"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"running"},{"type":"toolCall","id":"c1","name":"shell","arguments":{"cmd":"ls"}}],"api":"custom","provider":"custom","model":"deepseek-v4-pro","usage":{},"stopReason":"toolUse","timestamp":1767225602000_i64}}),
+        json!({"type":"message","id":"t1","parentId":"a1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"shell","content":[{"type":"text","text":"file.txt"}],"isError":false,"timestamp":1767225603000_i64}}),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    let parsed = pi::parse_session(&fixture).unwrap();
+    assert_eq!(parsed.source_tool, SourceTool::Pi);
+    assert_eq!(parsed.session_id, "pi1");
+    assert_eq!(parsed.cwd, r"C:\\proj");
+    assert_eq!(parsed.model_provider.as_deref(), Some("custom"));
+    assert_eq!(parsed.model.as_deref(), Some("deepseek-v4-pro"));
+    assert_eq!(parsed.messages.len(), 2);
+    assert_eq!(parsed.messages[1].text, "running");
+    assert_eq!(parsed.messages[1].tool_calls[0].input, json!({"cmd":"ls"}));
+    assert_eq!(
+        parsed.messages[1].tool_calls[0].output.as_deref(),
+        Some("file.txt")
+    );
+
+    let temp = tempfile::tempdir().unwrap();
+    let result = pi::write_session_to_root(&sample_session(SourceTool::Pi), temp.path()).unwrap();
+    assert!(result
+        .session_file
+        .to_string_lossy()
+        .contains("--C--proj--"));
+    let restored =
+        pi::parse_session(&std::fs::read_to_string(&result.session_file).unwrap()).unwrap();
+    assert_eq!(restored.source_tool, SourceTool::Pi);
+    assert_eq!(restored.session_id, result.session_id);
+    assert_eq!(restored.messages, sample_session(SourceTool::Pi).messages);
 }
 
 #[test]
@@ -309,12 +373,28 @@ fn parses_nothing_from_a_missing_opencode_database() {
 fn dsh_log_round_trips_messages_and_tool_calls() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("sessions");
-    let mut session = sample_session(SourceTool::Dsh);
+    let mut session = sample_session(SourceTool::Pi);
     session.cwd = "F:/proj".to_string();
 
     let result = dsh::write_session_to_root(&session, &root).unwrap();
     assert!(result.session_id.starts_with("session-"));
     assert!(result.log_file.to_string_lossy().ends_with(".jsonl.zstd"));
+    let workspace: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("storages").join("workspace.json")).unwrap(),
+    )
+    .unwrap();
+    let workspace_entry = workspace["tables"]["workspaces"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap();
+    assert_eq!(workspace_entry["path"], "F:/proj");
+    assert!(workspace_entry["sessionIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value.as_str() == Some(&result.session_id)));
 
     let parsed = dsh::parse_session_file(&result.log_file).unwrap().unwrap();
     assert_eq!(parsed.source_tool, SourceTool::Dsh);

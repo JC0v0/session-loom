@@ -129,6 +129,7 @@ fn watcher_remirrors_sources_after_the_store_is_wiped_and_keeps_tombstones() {
         claude: store_root.path().join("missing-claude"),
         opencode: store_root.path().join("missing-opencode.db"),
         dsh: store_root.path().join("missing-dsh"),
+        pi: store_root.path().join("missing-pi"),
     };
     let result = delete_session(&store, "s2", &broken_roots);
     assert!(result.ok, "{}", result.message);
@@ -342,5 +343,49 @@ fn watcher_mirrors_dsh_session_logs() {
     assert_eq!(
         store.read_session(&result.session_id).unwrap().messages[0].text,
         "zstd hello"
+    );
+}
+
+#[test]
+fn watcher_mirrors_pi_session_files() {
+    use session_loom_core::{
+        adapters::pi,
+        canonical::{CanonicalSession, Message, Role, CANONICAL_SCHEMA_VERSION},
+    };
+
+    let source = tempfile::tempdir().unwrap();
+    let store_root = tempfile::tempdir().unwrap();
+    let store = Store::open(store_root.path()).unwrap();
+    let session = CanonicalSession {
+        schema_version: CANONICAL_SCHEMA_VERSION,
+        source_tool: SourceTool::Pi,
+        session_id: "pi-source".to_string(),
+        cwd: r"C:\proj".to_string(),
+        created_at: "2026-01-01T00:00:00.000Z".to_string(),
+        updated_at: "2026-01-01T00:00:01.000Z".to_string(),
+        model_provider: Some("custom".to_string()),
+        model: Some("model".to_string()),
+        messages: vec![Message {
+            role: Role::User,
+            text: "hello pi".to_string(),
+            tool_calls: vec![],
+        }],
+    };
+    let result = pi::write_session_to_root(&session, source.path()).unwrap();
+    let mut watcher = SessionWatcher::new(
+        store.clone(),
+        vec![WatchTarget {
+            source_tool: SourceTool::Pi,
+            root: source.path().to_path_buf(),
+        }],
+    );
+
+    watcher.scan_once();
+    let mirrored = store.read_session(&result.session_id).unwrap();
+    assert_eq!(mirrored.source_tool, SourceTool::Pi);
+    assert_eq!(mirrored.messages[0].text, "hello pi");
+    assert_eq!(
+        store.session_source_path(&result.session_id),
+        Some(result.session_file.to_string_lossy().to_string())
     );
 }

@@ -552,6 +552,7 @@ fn migrate_legacy_json(connection: &mut Connection, root: &Path) -> Result<(), S
         SourceTool::Claude,
         SourceTool::OpenCode,
         SourceTool::Dsh,
+        SourceTool::Pi,
     ] {
         let directory = legacy.join(tool.as_str());
         let Ok(entries) = fs::read_dir(directory) else {

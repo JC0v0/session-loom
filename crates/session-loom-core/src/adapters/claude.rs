@@ -20,6 +20,28 @@ pub struct ClaudeWriteResult {
     pub session_id: String,
 }
 
+/// Parses a Claude session file and recovers its project from the encoded
+/// project directory when older records do not carry a `cwd` field.
+pub fn parse_session_file(path: &Path) -> Result<CanonicalSession, String> {
+    let payload = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut session = parse_session(&payload)?;
+    if session.cwd.is_empty() {
+        if let Some(project) = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+        {
+            session.cwd = super::decode_claude_project(project);
+        }
+    }
+    if session.session_id.is_empty() {
+        if let Some(session_id) = path.file_stem().and_then(|name| name.to_str()) {
+            session.session_id = session_id.to_string();
+        }
+    }
+    Ok(session)
+}
+
 pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
     let mut messages = vec![];
     let mut outputs = HashMap::new();

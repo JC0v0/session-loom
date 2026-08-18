@@ -1,5 +1,5 @@
 use crate::{
-    adapters::{claude, codex, dsh, opencode},
+    adapters::{claude, codex, dsh, opencode, pi},
     canonical::SourceTool,
     paths,
     store::Store,
@@ -15,6 +15,7 @@ pub struct RestoreRoots {
     pub claude: PathBuf,
     pub opencode: PathBuf,
     pub dsh: PathBuf,
+    pub pi: PathBuf,
 }
 
 impl RestoreRoots {
@@ -24,6 +25,7 @@ impl RestoreRoots {
             claude: paths::claude_root(),
             opencode: paths::opencode_database(),
             dsh: paths::dsh_sessions_root(),
+            pi: paths::pi_sessions_root(),
         }
     }
 }
@@ -75,6 +77,13 @@ pub fn restore_session(
                 )
             })
         }
+        SourceTool::Pi => pi::write_session_to_root(&session, &roots.pi).map(|result| {
+            format!(
+                "restored to Pi: {} ({})",
+                result.session_id,
+                result.session_file.display()
+            )
+        }),
         SourceTool::Codex => {
             let now = Local::now();
             let session_id = Uuid::new_v4().to_string();

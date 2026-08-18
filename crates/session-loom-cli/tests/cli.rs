@@ -3,7 +3,7 @@ use session_loom_core::{
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
     store::Store,
 };
-use std::process::Command;
+use std::{fs, process::Command};
 
 fn seed_store(root: &std::path::Path) {
     let store = Store::open(root).unwrap();
@@ -76,6 +76,7 @@ fn rust_cli_restores_and_reports_missing_sessions() {
     let store = tempfile::tempdir().unwrap();
     let codex = tempfile::tempdir().unwrap();
     let claude = tempfile::tempdir().unwrap();
+    let pi = tempfile::tempdir().unwrap();
     seed_store(store.path());
     let binary = env!("CARGO_BIN_EXE_ssl");
 
@@ -115,6 +116,21 @@ fn rust_cli_restores_and_reports_missing_sessions() {
     let dsh_logs = session_loom_core::adapters::dsh::session_log_files(dsh.path());
     assert_eq!(dsh_logs.len(), 1);
     assert!(dsh_logs[0].to_string_lossy().ends_with(".jsonl.zstd"));
+
+    let restore_pi = Command::new(binary)
+        .args(["restore", "--to", "pi", "s1"])
+        .env("SESSION_LOOM_STORE", store.path())
+        .env("PI_CODING_AGENT_SESSION_DIR", pi.path())
+        .output()
+        .unwrap();
+    assert!(restore_pi.status.success());
+    assert_eq!(
+        fs::read_dir(pi.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .count(),
+        1
+    );
 
     let missing = Command::new(binary)
         .args(["export", "missing"])

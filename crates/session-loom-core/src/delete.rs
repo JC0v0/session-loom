@@ -91,6 +91,7 @@ fn delete_source(
         SourceTool::Claude => delete_claude_source(session, known_path, &roots.claude),
         SourceTool::OpenCode => delete_opencode_source(session, &roots.opencode),
         SourceTool::Dsh => delete_dsh_source(session, known_path, &roots.dsh),
+        SourceTool::Pi => delete_pi_source(session, known_path, &roots.pi),
     }
 }
 
@@ -212,6 +213,50 @@ fn delete_opencode_source(session: &CanonicalSession, database: &Path) -> Result
         Ok(())
     } else {
         Err("OpenCode 数据库中没有该会话".to_string())
+    }
+}
+
+fn delete_pi_source(
+    session: &CanonicalSession,
+    known: Option<&str>,
+    root: &Path,
+) -> Result<(), String> {
+    let path = match known {
+        Some(path) => PathBuf::from(path),
+        None => {
+            let suffix = format!("_{}.jsonl", session.session_id);
+            let mut found = vec![];
+            collect_pi_files(root, &suffix, &mut found);
+            found
+                .into_iter()
+                .next()
+                .ok_or_else(|| "找不到 Pi 会话文件".to_string())?
+        }
+    };
+    remove_file_if_exists(&path)
+}
+
+fn collect_pi_files(directory: &Path, suffix: &str, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            collect_pi_files(&path, suffix, found);
+        } else if file_type.is_file()
+            && path.extension().and_then(|value| value.to_str()) == Some("jsonl")
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(suffix))
+                .unwrap_or(false)
+        {
+            found.push(path);
+        }
     }
 }
 

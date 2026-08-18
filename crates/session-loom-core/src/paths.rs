@@ -49,6 +49,18 @@ pub fn dsh_sessions_root() -> PathBuf {
         })
 }
 
+pub fn pi_agent_dir() -> PathBuf {
+    std::env::var("PI_CODING_AGENT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_dir().join(".pi").join("agent"))
+}
+
+pub fn pi_sessions_root() -> PathBuf {
+    std::env::var("PI_CODING_AGENT_SESSION_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| pi_agent_dir().join("sessions"))
+}
+
 pub fn opencode_data_dir() -> PathBuf {
     std::env::var("OPENCODE_DATA_DIR")
         .or_else(|_| std::env::var("XDG_DATA_HOME"))

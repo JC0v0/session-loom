@@ -32,24 +32,20 @@ pub fn daemon_state(store_root: &Path) -> DaemonState {
 
 pub fn ensure_daemon_running(store_root: &Path, executable: &Path) -> DaemonState {
     let state = daemon_state(store_root);
-    #[cfg(unix)]
     if let Some(pid) = state.pid.filter(|_| state.running) {
         let command = process_command(pid).unwrap_or_default();
-        if is_rust_daemon_command(&command) {
+        if is_daemon_command_for_executable(&command, executable) {
             return state;
         }
-        if is_legacy_daemon_command(&command) {
+        if is_session_loom_daemon_command(&command) {
             if !terminate_daemon_process(pid) {
                 return state;
             }
             let _ = remove_pid_file_if_matches(&pid_file(store_root), pid);
         } else {
+            // Do not terminate a process that merely happens to reuse the pid.
             return state;
         }
-    }
-    #[cfg(not(unix))]
-    if state.running {
-        return state;
     }
 
     let mut command = Command::new(executable);
@@ -118,42 +114,42 @@ fn remove_pid_file_if_matches(path: &Path, pid: u32) -> bool {
 }
 
 fn daemon_process_matches(pid: u32) -> bool {
-    if !pid_alive(pid) {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        process_command(pid)
+    pid_alive(pid)
+        && process_command(pid)
             .as_deref()
             .map(is_session_loom_daemon_command)
             .unwrap_or(false)
-    }
-    #[cfg(not(unix))]
-    true
 }
 
-#[cfg(unix)]
 fn is_session_loom_daemon_command(command: &str) -> bool {
     is_rust_daemon_command(command) || is_legacy_daemon_command(command)
 }
 
-#[cfg(any(unix, test))]
+fn is_daemon_command_for_executable(command: &str, executable: &Path) -> bool {
+    let normalized_command = normalize_command(command);
+    let normalized_executable = normalize_command(&executable.to_string_lossy());
+    is_rust_daemon_command(&normalized_command)
+        && normalized_command.contains(&normalized_executable)
+}
+
+fn normalize_command(command: &str) -> String {
+    command.replace('\\', "/").replace('"', "")
+}
+
 fn is_rust_daemon_command(command: &str) -> bool {
-    let normalized = command.replace('\\', "/");
+    let normalized = normalize_command(command);
     normalized == "ssl daemon run"
         || normalized == "ssl.exe daemon run"
         || normalized.contains("/ssl daemon run")
         || normalized.contains("/ssl.exe daemon run")
 }
 
-#[cfg(any(unix, test))]
 fn is_legacy_daemon_command(command: &str) -> bool {
-    let normalized = command.replace('\\', "/");
+    let normalized = normalize_command(command);
     (normalized.contains("/dist-cli/cli.mjs") || normalized.contains("/src/cli.ts"))
         && has_daemon_run_args(&normalized)
 }
 
-#[cfg(any(unix, test))]
 fn has_daemon_run_args(command: &str) -> bool {
     command
         .split_whitespace()
@@ -200,6 +196,21 @@ fn process_command(pid: u32) -> Option<String> {
     (!command.is_empty()).then_some(command)
 }
 
+#[cfg(windows)]
+fn process_command(pid: u32) -> Option<String> {
+    let filter =
+        format!("(Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\").CommandLine");
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &filter]);
+    no_window(&mut command);
+    let output = command.stderr(Stdio::null()).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!command.is_empty()).then_some(command)
+}
+
 fn terminate_daemon_process(pid: u32) -> bool {
     if !daemon_process_matches(pid) {
         return false;
@@ -230,9 +241,8 @@ fn no_window(_command: &mut Command) {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        _command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW);
+        _command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
     }
 }
 
@@ -240,7 +250,11 @@ fn no_window(_command: &mut Command) {
 mod tests {
     #[cfg(unix)]
     use super::{daemon_process_matches, pid_alive, terminate_daemon_process};
-    use super::{has_daemon_run_args, is_legacy_daemon_command, is_rust_daemon_command};
+    use super::{
+        has_daemon_run_args, is_daemon_command_for_executable, is_legacy_daemon_command,
+        is_rust_daemon_command,
+    };
+    use std::path::Path;
     #[cfg(unix)]
     use std::process::Command;
 
@@ -256,6 +270,14 @@ mod tests {
             "/opt/homebrew/bin/node /Applications/Session-Loom.app/Contents/Resources/dist-cli/cli.mjs daemon run"
         ));
         assert!(!is_rust_daemon_command("/tmp/ssl daemon status"));
+        assert!(is_daemon_command_for_executable(
+            "\"F:/Session-Loom/target/debug/ssl.exe\" daemon run",
+            Path::new("F:\\Session-Loom\\target\\debug\\ssl.exe"),
+        ));
+        assert!(!is_daemon_command_for_executable(
+            "C:/Program Files/Session-Loom/bin/ssl.exe daemon run",
+            Path::new("F:\\Session-Loom\\target\\debug\\ssl.exe"),
+        ));
         assert!(!has_daemon_run_args("sleep 30"));
     }
 

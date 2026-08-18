@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 use session_loom_core::{
-    adapters::{dsh, opencode},
+    adapters::{dsh, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
     restore::{restore_session, RestoreRoots},
     store::{ListFilter, Store},
@@ -237,13 +237,14 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
 }
 
 #[test]
-fn restores_sessions_to_codex_claude_opencode_and_dsh() {
+fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     let store_temp = tempfile::tempdir().unwrap();
     let codex_temp = tempfile::tempdir().unwrap();
     let claude_temp = tempfile::tempdir().unwrap();
     let opencode_temp = tempfile::tempdir().unwrap();
     let opencode_db = opencode_temp.path().join("opencode.db");
     let dsh_temp = tempfile::tempdir().unwrap();
+    let pi_temp = tempfile::tempdir().unwrap();
     let store = Store::open(store_temp.path()).unwrap();
     store.write_session(&sample()).unwrap();
     let roots = RestoreRoots {
@@ -251,6 +252,7 @@ fn restores_sessions_to_codex_claude_opencode_and_dsh() {
         claude: claude_temp.path().to_path_buf(),
         opencode: opencode_db.clone(),
         dsh: dsh_temp.path().to_path_buf(),
+        pi: pi_temp.path().to_path_buf(),
     };
 
     assert!(restore_session(&store, SourceTool::Codex, Some("s1"), &roots).ok);
@@ -274,6 +276,15 @@ fn restores_sessions_to_codex_claude_opencode_and_dsh() {
     assert_eq!(dsh_restored.cwd, r"C:\proj");
     assert_eq!(dsh_restored.messages[0].text, "帮我修一下这个 bug");
     assert_ne!(dsh_restored.session_id, "s1");
+
+    assert!(restore_session(&store, SourceTool::Pi, Some("s1"), &roots).ok);
+    let pi_files = walk_jsonl(pi_temp.path());
+    assert_eq!(pi_files.len(), 1);
+    let pi_restored = pi::parse_session(&fs::read_to_string(&pi_files[0]).unwrap()).unwrap();
+    assert_eq!(pi_restored.source_tool, SourceTool::Pi);
+    assert_eq!(pi_restored.cwd, r"C:\proj");
+    assert_eq!(pi_restored.messages[0].text, "帮我修一下这个 bug");
+    assert_ne!(pi_restored.session_id, "s1");
 
     assert!(!restore_session(&store, SourceTool::Codex, Some("missing"), &roots).ok);
 }

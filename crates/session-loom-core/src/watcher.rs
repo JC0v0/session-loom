@@ -1,5 +1,5 @@
 use crate::{
-    adapters::{claude, codex, dsh, opencode},
+    adapters::{claude, codex, dsh, opencode, pi},
     canonical::SourceTool,
     store::Store,
     trash::{Trash, TRASH_RETENTION},
@@ -98,12 +98,20 @@ fn mirror_file(
             }
             Ok(())
         }
+        SourceTool::Pi => {
+            let payload = fs::read_to_string(file).map_err(|error| error.to_string())?;
+            let session = pi::parse_session(&payload)?;
+            if !trash.contains(&session.session_id) {
+                store.write_session_from(&session, Some(file))?;
+            }
+            Ok(())
+        }
         SourceTool::Codex | SourceTool::Claude => {
             let payload = fs::read_to_string(file).map_err(|error| error.to_string())?;
             let session = match source_tool {
                 SourceTool::Codex => codex::parse_session(&payload)?,
-                SourceTool::Claude => claude::parse_session(&payload)?,
-                SourceTool::OpenCode | SourceTool::Dsh => unreachable!(),
+                SourceTool::Claude => claude::parse_session_file(file)?,
+                SourceTool::OpenCode | SourceTool::Dsh | SourceTool::Pi => unreachable!(),
             };
             if !trash.contains(&session.session_id) {
                 store.write_session_from(&session, Some(file))?;
@@ -117,7 +125,7 @@ fn session_files(target: &WatchTarget) -> Vec<PathBuf> {
     match target.source_tool {
         SourceTool::OpenCode => opencode_session_files(&target.root),
         SourceTool::Dsh => dsh::session_log_files(&target.root),
-        SourceTool::Codex | SourceTool::Claude => {
+        SourceTool::Codex | SourceTool::Claude | SourceTool::Pi => {
             let mut files = vec![];
             walk(&target.root, &mut files);
             files

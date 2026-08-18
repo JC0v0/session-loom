@@ -140,6 +140,7 @@ aside {
 .badge.claude { color: var(--claude); background: rgba(194, 65, 12, .09); }
 .badge.opencode { color: #0E7C66; background: rgba(14, 124, 102, .09); }
 .badge.dsh { color: #6D3FD6; background: rgba(109, 63, 214, .09); }
+.badge.pi { color: #A05A00; background: rgba(160, 90, 0, .10); }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }

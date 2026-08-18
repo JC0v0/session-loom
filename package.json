@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mirror Claude Code and Codex sessions into a durable canonical format and restore them into either tool.",
+  "description": "Mirror Claude Code, Codex, OpenCode, DeepSeek Harness, and Pi sessions into a durable canonical format and restore them into any supported tool.",
   "scripts": {
     "start": "cargo run -p session-loom-cli --",
     "desktop": "tauri dev",
