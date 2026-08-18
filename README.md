@@ -215,7 +215,6 @@ npm run dist:mac    # macOS .app 与 DMG
 3. 提交前运行 `npm test`、`cargo fmt` 和 Clippy。
 4. 不要提交会话数据库、凭据、用户对话或生成的 CLI 二进制。
 
-设计计划与仓库约定：
+仓库贡献约定：[AGENTS.md](AGENTS.md)
 
-- [设计与规划文档](docs/plans/2026-08-14-1409-feat-session-bridge-plan.md)
-- [仓库贡献约定](AGENTS.md)
+> `docs/plans/` 为本地设计记录，不随公开仓库发布。

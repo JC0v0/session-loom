@@ -6,4 +6,6 @@ src-tauri/binaries/*
 
 .tmp-patch
 
+docs/plans/
+
 .ui-shot*
