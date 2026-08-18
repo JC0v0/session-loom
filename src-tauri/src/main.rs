@@ -11,6 +11,7 @@ use session_loom_core::{
 };
 use std::{
     path::{Path, PathBuf},
+    process::Command,
     str::FromStr,
 };
 use tauri::{
@@ -47,6 +48,7 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        let _ = window.emit("window-shown", ());
     }
 }
 
@@ -237,6 +239,43 @@ fn daemon_status() -> DaemonState {
 }
 
 #[tauri::command]
+fn open_github() -> Result<(), String> {
+    const URL: &str = "https://github.com/JC0v0/session-loom";
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", URL]);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(URL);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(URL);
+        command
+    };
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+        .status()
+        .map_err(|error| error.to_string())
+        .and_then(|status| {
+            status
+                .success()
+                .then_some(())
+                .ok_or_else(|| "无法打开 GitHub 仓库".to_string())
+        })
+}
+
+#[tauri::command]
 async fn daemon_toggle() -> DaemonState {
     tauri::async_runtime::spawn_blocking(|| {
         let store_root = paths::store_root();
@@ -284,7 +323,8 @@ fn main() {
             trash_restore,
             trash_delete,
             daemon_status,
-            daemon_toggle
+            daemon_toggle,
+            open_github
         ])
         .build(tauri::generate_context!())
         .expect("error while building session-loom");

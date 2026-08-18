@@ -62,6 +62,13 @@ header {
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14px; letter-spacing: .2px; }
 .brand .loom { width: 22px; height: 22px; border-radius: 6px; }
 .spacer { flex: 1; }
+.github-link {
+  color: var(--text-dim); text-decoration: none;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 11.5px; line-height: 16px;
+  transition: border-color var(--ease), color var(--ease), background var(--ease);
+}
+.github-link:hover { color: var(--text); border-color: var(--border-strong); background: var(--bg); }
 .count-pill { color: var(--text-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .daemon-pill {
@@ -86,6 +93,9 @@ aside {
   background: var(--bg-soft);
 }
 .side-tools { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+#sessionTools.hidden { display: none; }
+#trashTools { display: none; }
+#trashTools.active { display: flex; }
 
 #search {
   width: 100%; padding: 7px 12px;
@@ -211,6 +221,60 @@ details.tool pre {
 .empty { flex: 1; display: grid; place-items: center; color: var(--text-faint); font-size: 13px; text-align: center; padding: 40px; line-height: 2; }
 .empty-logo { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 14px; opacity: .9; }
 
+body.modal-open { overflow: hidden; }
+
+#deleteModal {
+  position: fixed; inset: 0; z-index: 80;
+  display: none; align-items: center; justify-content: center;
+  padding: 24px;
+}
+#deleteModal.open { display: flex; }
+.delete-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(36, 35, 31, .34);
+  backdrop-filter: blur(3px);
+  animation: modal-fade-in 160ms ease-out;
+}
+.delete-dialog {
+  position: relative; width: min(460px, 100%);
+  padding: 24px; border: 1px solid var(--border-strong);
+  border-radius: 16px; background: var(--panel);
+  box-shadow: 0 24px 70px rgba(36, 35, 31, .24);
+  animation: modal-slide-in 180ms cubic-bezier(.2, .8, .2, 1);
+}
+.delete-heading { display: flex; align-items: flex-start; gap: 13px; }
+.delete-mark {
+  display: grid; place-items: center; flex: 0 0 40px; height: 40px;
+  border-radius: 12px; background: rgba(217, 63, 63, .10);
+  color: var(--danger); font-size: 20px; font-weight: 800;
+}
+.delete-kicker {
+  margin-bottom: 2px; color: var(--danger); font-size: 10.5px;
+  font-weight: 750; letter-spacing: 1.2px; text-transform: uppercase;
+}
+.delete-dialog h2 { font-size: 18px; line-height: 1.35; font-weight: 700; }
+.delete-copy { margin: 17px 0 15px; color: var(--text-dim); line-height: 1.65; }
+.delete-summary {
+  display: grid; gap: 9px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); font-size: 12px;
+}
+.delete-summary-row { display: grid; grid-template-columns: 48px 1fr; gap: 12px; min-width: 0; }
+.delete-summary-row > span { color: var(--text-faint); }
+.delete-summary-row > strong,
+.delete-summary-row > code {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font: inherit;
+}
+.delete-summary-row > code { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.delete-footnote { margin-top: 12px; color: var(--text-faint); font-size: 11px; }
+.delete-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+.delete-actions .btn { min-width: 88px; }
+.btn.delete-confirm { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.delete-confirm:hover { background: #B92F36; border-color: #B92F36; }
+@keyframes modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-slide-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
 #toast {
   position: fixed; right: 18px; bottom: 18px; z-index: 50;
   max-width: 460px; padding: 11px 15px;
@@ -230,6 +294,7 @@ details.tool pre {
   <header>
     <div class="brand"><img class="loom" src="icon.png" alt="" /> Session-Loom</div>
     <div class="spacer"></div>
+    <a class="github-link" id="githubLink" href="https://github.com/JC0v0/session-loom" target="_blank" rel="noopener noreferrer" title="打开 GitHub 仓库">GitHub ↗</a>
     <span class="count-pill" id="countPill"></span>
     <button class="daemon-pill" id="openTrash" title="查看已删除的会话">回收站</button>
     <div class="daemon-pill" id="daemonPill" title="点击启动/停止镜像守护进程">
@@ -250,7 +315,7 @@ details.tool pre {
           <button class="tab" data-tool="pi">Pi</button>
         </div>
       </div>
-      <div class="side-tools" id="trashTools" style="display: none">
+      <div class="side-tools" id="trashTools">
         <div class="trash-note" id="trashNote">回收站 · 删除后 30 天内可恢复</div>
         <button class="btn block" id="closeTrash">← 返回会话列表</button>
       </div>
@@ -261,13 +326,36 @@ details.tool pre {
       <div class="empty" id="emptyState">
         <div>
           <img class="empty-logo" src="icon.png" alt="" />
-          从左侧选择一个会话查看对话内容<br />选中后可将其恢复到 Codex / Claude / OpenCode / DSH 继续对话
+          从左侧选择一个会话查看对话内容<br />选中后可将其恢复到 Codex / Claude / OpenCode / DSH / Pi 继续对话
         </div>
       </div>
       <div id="detailBody"></div>
     </section>
   </main>
 
+  <div id="deleteModal" aria-hidden="true">
+    <div class="delete-backdrop" data-delete-cancel></div>
+    <section class="delete-dialog" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+      <div class="delete-heading">
+        <div class="delete-mark">!</div>
+        <div>
+          <div class="delete-kicker" id="deleteKicker">危险操作</div>
+          <h2 id="deleteModalTitle">删除这条会话？</h2>
+        </div>
+      </div>
+      <p class="delete-copy" id="deleteCopy">源工具中的会话会被尽力删除，canonical 镜像会先归档到 30 天回收站，之后仍可恢复。</p>
+      <div class="delete-summary">
+        <div class="delete-summary-row"><span>会话</span><strong id="deleteTitle"></strong></div>
+        <div class="delete-summary-row"><span>来源</span><strong id="deleteSource"></strong></div>
+        <div class="delete-summary-row"><span>项目</span><code id="deleteProject"></code></div>
+      </div>
+      <div class="delete-footnote" id="deleteFootnote">删除源文件失败时，回收站中的 canonical 镜像仍会保留。</div>
+      <div class="delete-actions">
+        <button class="btn" id="deleteCancel" type="button">取消</button>
+        <button class="btn delete-confirm" id="deleteConfirm" type="button">删除并移入回收站</button>
+      </div>
+    </section>
+  </div>
   <div id="toast"></div>
 
 <script>
@@ -282,6 +370,7 @@ details.tool pre {
     trashRemove: (id) => invoke('trash_delete', { sessionId: id }),
     daemonStatus: () => invoke('daemon_status'),
     daemonToggle: () => invoke('daemon_toggle'),
+    openGithub: () => invoke('open_github'),
   };
   const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH', pi: 'Pi' };
   const toolLabel = (tool) => TOOL_LABELS[tool] || tool;
@@ -323,6 +412,54 @@ details.tool pre {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.className = ''; }, 5200);
   }
+
+  let deleteResolver = null;
+  let deleteTrigger = null;
+  function closeDeleteModal(confirmed) {
+    const modal = $('deleteModal');
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+    const resolver = deleteResolver;
+    deleteResolver = null;
+    const trigger = deleteTrigger;
+    deleteTrigger = null;
+    if (trigger) trigger.focus();
+    if (resolver) resolver(confirmed);
+  }
+
+  function confirmDelete(session, title, trigger, permanent = false) {
+    const modal = $('deleteModal');
+    $('deleteKicker').textContent = permanent ? '不可撤销' : '危险操作';
+    $('deleteModalTitle').textContent = permanent ? '彻底删除这条会话？' : '删除这条会话？';
+    $('deleteCopy').textContent = permanent
+      ? '这条会话会从回收站和本地存储中永久移除，之后无法恢复。'
+      : '源工具中的会话会被尽力删除，canonical 镜像会先归档到 30 天回收站，之后仍可恢复。';
+    $('deleteFootnote').textContent = permanent
+      ? '这是最后一步，建议确认不再需要这段对话。'
+      : '删除源文件失败时，回收站中的 canonical 镜像仍会保留。';
+    $('deleteConfirm').textContent = permanent ? '彻底删除' : '删除并移入回收站';
+    $('deleteTitle').textContent = title || '(空会话)';
+    $('deleteSource').textContent = toolLabel(session.sourceTool);
+    $('deleteProject').textContent = session.cwd || '未记录项目';
+    deleteTrigger = trigger;
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    $('deleteConfirm').focus();
+    return new Promise((resolve) => { deleteResolver = resolve; });
+  }
+
+  $('deleteCancel').addEventListener('click', () => closeDeleteModal(false));
+  $('deleteConfirm').addEventListener('click', () => closeDeleteModal(true));
+  $('deleteModal').addEventListener('click', (event) => {
+    if (event.target.matches('[data-delete-cancel]')) closeDeleteModal(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && $('deleteModal').classList.contains('open')) {
+      closeDeleteModal(false);
+    }
+  });
 
   let sessionLoadVersion = 0;
   async function loadSessions(keepScroll = true) {
@@ -456,8 +593,10 @@ details.tool pre {
       $('btnRestore-' + tool).addEventListener('click', (e) => doRestore(session.sessionId, tool, e.target));
     }
     $('btnRestoreSame').addEventListener('click', (e) => doRestore(session.sessionId, session.sourceTool, e.target));
-    $('btnDelete').addEventListener('click', async () => {
-      if (!confirm('确定删除这条会话吗?\n\n' + title + '\n\n将同时尝试删除 ' + toolLabel(session.sourceTool) + ' 中的原始会话文件，镜像会移入回收站保留 30 天。')) return;
+    $('btnDelete').addEventListener('click', async (event) => {
+      const trigger = event.currentTarget;
+      if (!await confirmDelete(session, title, trigger)) return;
+      trigger.disabled = true;
       try {
         const res = await api.remove(session.sessionId);
         toast(res.message, res.ok);
@@ -468,6 +607,8 @@ details.tool pre {
         }
       } catch (e) {
         toast('删除失败: ' + (e.message || e), false);
+      } finally {
+        trigger.disabled = false;
       }
     });
 
@@ -614,8 +755,9 @@ details.tool pre {
       }
     });
     $('btnTrashDelete').addEventListener('click', async (e) => {
-      if (!confirm('确定彻底删除这条会话吗?\n\n' + title + '\n\n该操作无法撤销。')) return;
-      e.target.disabled = true;
+      const trigger = e.currentTarget;
+      if (!await confirmDelete(session, title, trigger, true)) return;
+      trigger.disabled = true;
       try {
         await api.trashRemove(session.sessionId);
         toast('已彻底删除');
@@ -634,8 +776,8 @@ details.tool pre {
 
   function enterTrashMode() {
     state.mode = 'trash';
-    $('sessionTools').style.display = 'none';
-    $('trashTools').style.display = 'flex';
+    $('sessionTools').classList.add('hidden');
+    $('trashTools').classList.add('active');
     $('openTrash').style.display = 'none';
     clearDetail();
     state.trashFingerprint = '';
@@ -644,8 +786,8 @@ details.tool pre {
 
   function exitTrashMode() {
     state.mode = 'sessions';
-    $('trashTools').style.display = 'none';
-    $('sessionTools').style.display = 'flex';
+    $('trashTools').classList.remove('active');
+    $('sessionTools').classList.remove('hidden');
     $('openTrash').style.display = '';
     clearDetail();
     state.fingerprint = '';
@@ -654,10 +796,17 @@ details.tool pre {
 
   $('openTrash').addEventListener('click', enterTrashMode);
   $('closeTrash').addEventListener('click', exitTrashMode);
+  $('githubLink').addEventListener('click', (event) => {
+    event.preventDefault();
+    api.openGithub().catch((error) => toast('打开 GitHub 失败: ' + (error.message || error), false));
+  });
 
   // The window close button hides to the tray. Reset transient views so the
   // next open always lands on the session list instead of the recycle bin.
   window.__TAURI__.event.listen('window-hidden', () => {
+    if (state.mode === 'trash') exitTrashMode();
+  }).catch(() => {});
+  window.__TAURI__.event.listen('window-shown', () => {
     if (state.mode === 'trash') exitTrashMode();
   }).catch(() => {});
 
