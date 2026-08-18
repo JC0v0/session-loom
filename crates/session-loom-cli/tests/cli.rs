@@ -92,6 +92,7 @@ fn rust_cli_restores_and_reports_missing_sessions() {
 
     let opencode = tempfile::tempdir().unwrap();
     let opencode_db = opencode.path().join("opencode.db");
+    session_loom_core::adapters::opencode::init_database(&opencode_db).unwrap();
     let restore_opencode = Command::new(binary)
         .args(["restore", "--to", "opencode", "s1"])
         .env("SESSION_LOOM_STORE", store.path())

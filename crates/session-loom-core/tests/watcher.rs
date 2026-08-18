@@ -126,6 +126,7 @@ fn watcher_remirrors_sources_after_the_store_is_wiped_and_keeps_tombstones() {
     // while the mirror row is removed and a trash entry retained.
     let broken_roots = RestoreRoots {
         codex: store_root.path().join("missing-codex"),
+        codex_home: store_root.path().join("missing-codex-home"),
         claude: store_root.path().join("missing-claude"),
         opencode: store_root.path().join("missing-opencode.db"),
         dsh: store_root.path().join("missing-dsh"),
@@ -210,6 +211,7 @@ fn watcher_mirrors_opencode_database_sessions() {
             tool_calls: vec![],
         }],
     };
+    opencode::init_database(&database).unwrap();
     let result = opencode::write_session_to_database(&session, &database).unwrap();
     let mut watcher = SessionWatcher::new(
         store.clone(),

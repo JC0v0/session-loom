@@ -240,6 +240,7 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
 fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     let store_temp = tempfile::tempdir().unwrap();
     let codex_temp = tempfile::tempdir().unwrap();
+    let codex_home_temp = tempfile::tempdir().unwrap();
     let claude_temp = tempfile::tempdir().unwrap();
     let opencode_temp = tempfile::tempdir().unwrap();
     let opencode_db = opencode_temp.path().join("opencode.db");
@@ -249,6 +250,7 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     store.write_session(&sample()).unwrap();
     let roots = RestoreRoots {
         codex: codex_temp.path().to_path_buf(),
+        codex_home: codex_home_temp.path().to_path_buf(),
         claude: claude_temp.path().to_path_buf(),
         opencode: opencode_db.clone(),
         dsh: dsh_temp.path().to_path_buf(),
@@ -260,6 +262,7 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     assert!(restore_session(&store, SourceTool::Claude, Some("s1"), &roots).ok);
     assert!(claude_temp.path().join("history.jsonl").exists());
 
+    opencode::init_database(&opencode_db).unwrap();
     assert!(restore_session(&store, SourceTool::OpenCode, Some("s1"), &roots).ok);
     let restored = opencode::parse_sessions(&opencode_db).unwrap();
     assert_eq!(restored.len(), 1);

@@ -30,6 +30,7 @@ fn sample(session_id: &str, source_tool: SourceTool) -> CanonicalSession {
 fn roots(codex: &Path, claude: &Path, opencode: &Path, dsh: &Path) -> RestoreRoots {
     RestoreRoots {
         codex: codex.to_path_buf(),
+        codex_home: codex.to_path_buf(),
         claude: claude.to_path_buf(),
         opencode: opencode.to_path_buf(),
         dsh: dsh.to_path_buf(),
@@ -282,6 +283,7 @@ fn delete_opencode_removes_database_rows() {
     let database = opencode.path().join("opencode.db");
     let mut session = sample("oc1", SourceTool::OpenCode);
     session.cwd = "C:/proj".to_string();
+    opencode::init_database(&database).unwrap();
     let result = opencode::write_session_to_database(&session, &database).unwrap();
     let mirrored = opencode::parse_sessions(&database).unwrap();
     store
@@ -350,6 +352,7 @@ fn delete_pi_removes_session_file() {
         &result.session_id,
         &RestoreRoots {
             codex: codex.path().to_path_buf(),
+            codex_home: codex.path().to_path_buf(),
             claude: claude.path().to_path_buf(),
             opencode: opencode.path().join("opencode.db"),
             dsh: dsh.path().to_path_buf(),

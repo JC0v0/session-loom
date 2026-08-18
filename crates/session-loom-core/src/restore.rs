@@ -12,6 +12,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct RestoreRoots {
     pub codex: PathBuf,
+    pub codex_home: PathBuf,
     pub claude: PathBuf,
     pub opencode: PathBuf,
     pub dsh: PathBuf,
@@ -22,6 +23,7 @@ impl RestoreRoots {
     pub fn from_environment() -> Self {
         Self {
             codex: paths::codex_sessions_root(),
+            codex_home: paths::codex_home(),
             claude: paths::claude_root(),
             opencode: paths::opencode_database(),
             dsh: paths::dsh_sessions_root(),
@@ -106,9 +108,24 @@ pub fn restore_session(
                 .and_then(|_| {
                     let mut restored = session.clone();
                     restored.session_id = session_id.clone();
-                    codex::write_session(&restored)
+                    // Resume resolves the provider from the target Codex config;
+                    // fall back to the source metadata only when no target default exists.
+                    restored.model_provider =
+                        codex::configured_model_provider().or(restored.model_provider);
+                    codex::write_session(&restored).map(|payload| (restored, payload))
                 })
-                .and_then(|payload| fs::write(&file, payload).map_err(|error| error.to_string()))
+                .and_then(|(restored, payload)| {
+                    fs::write(&file, payload)
+                        .map_err(|error| error.to_string())
+                        .and_then(|_| {
+                            codex::register_session_index(
+                                &restored,
+                                &session_id,
+                                &roots.codex_home,
+                            )?;
+                            codex::register_thread(&restored, &session_id, &file, &roots.codex_home)
+                        })
+                })
                 .map(|_| format!("restored to Codex: {session_id} ({})", file.display()))
         }
     };

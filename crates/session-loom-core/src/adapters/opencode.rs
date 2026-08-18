@@ -84,8 +84,12 @@ pub fn parse_sessions(database: &Path) -> Result<Vec<CanonicalSession>, String> 
 }
 
 /// Writes a canonical session into an OpenCode SQLite database so that
-/// OpenCode can list and continue the conversation. Creates the database
-/// (with the OpenCode table layout) when it does not exist yet.
+/// OpenCode can list and continue the conversation.
+///
+/// The database must already be initialized by OpenCode itself. Session Loom
+/// must not create it from scratch: a hand-built schema has no migration
+/// records, so the next `opencode` launch fails its migrations with
+/// `table project already exists` and the whole CLI stops working.
 pub fn write_session_to_database(
     session: &CanonicalSession,
     database: &Path,
@@ -96,10 +100,20 @@ pub fn write_session_to_database(
     {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
+    if !database.exists() {
+        return Err(
+            "OpenCode 尚未初始化：请先运行一次 opencode 生成数据库，再恢复会话".to_string(),
+        );
+    }
     let mut connection = open_connection(database)?;
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| error.to_string())?;
+    if !is_opencode_initialized(&connection)? {
+        return Err(
+            "OpenCode 数据库缺少迁移记录（可能由旧版本 Session Loom 手工建表）：请先运行一次 opencode 完成初始化".to_string(),
+        );
+    }
     ensure_schema(&connection)?;
 
     let created_ms = parse_timestamp_ms(&session.created_at).unwrap_or_else(now_ms);
@@ -609,7 +623,11 @@ fn ensure_schema(connection: &Connection) -> Result<(), String> {
     }
     connection
         .execute_batch(
-            "CREATE TABLE IF NOT EXISTS project (
+            "CREATE TABLE IF NOT EXISTS migration (
+                id TEXT PRIMARY KEY,
+                time_completed INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS project (
                 id TEXT PRIMARY KEY,
                 worktree TEXT NOT NULL,
                 vcs TEXT,
@@ -688,6 +706,40 @@ fn ensure_schema(connection: &Connection) -> Result<(), String> {
 
 fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+fn is_opencode_initialized(connection: &Connection) -> Result<bool, String> {
+    if !table_exists(connection, "migration") {
+        return Ok(false);
+    }
+    connection
+        .query_row("SELECT count(*) FROM migration", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map(|count| count > 0)
+        .map_err(|error| error.to_string())
+}
+
+/// Test bootstrap: lays down the table layout and records a migration marker
+/// so the write path accepts the database. This is not a repair path for
+/// OpenCode startup — production restores require a database that OpenCode
+/// itself has initialized.
+pub fn init_database(database: &Path) -> Result<(), String> {
+    if let Some(parent) = database
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let connection = open_connection(database)?;
+    ensure_schema(&connection)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO migration (id, time_completed) VALUES ('session-loom-test', ?1)",
+            params![now_ms()],
+        )
+        .map_err(|error| error.to_string())
+        .map(|_| ())
 }
 
 fn parse_timestamp_ms(value: &str) -> Option<i64> {

@@ -95,20 +95,24 @@ fn writes_codex_interactive_session_records() {
     assert_eq!(records[0]["payload"]["originator"], "codex-tui");
     assert_eq!(records[0]["payload"]["source"], "cli");
     assert_eq!(records[0]["payload"]["thread_source"], "user");
-    assert!(records[0]["payload"].get("model_provider").is_none());
-    assert!(records[0]["payload"].get("base_instructions").is_none());
+    assert_eq!(records[0]["payload"]["model_provider"], "custom");
+    assert_eq!(records[0]["payload"]["cli_version"], "0.147.0");
+    assert!(records[0]["payload"].get("base_instructions").is_some());
     assert!(records
         .iter()
         .any(|record| record["payload"]["type"] == "function_call"));
     assert!(records
         .iter()
         .any(|record| record["payload"]["type"] == "function_call_output"));
+    assert!(records
+        .iter()
+        .any(|record| record["payload"]["type"] == "item_completed"));
 }
 
 #[test]
-fn writes_codex_session_without_model_pinning() {
-    // Restored sessions must not pin a model provider or model, so `codex resume`
-    // lists them in any project and resolves them with that project's defaults.
+fn writes_codex_session_with_configured_provider_without_model_pinning() {
+    // Restored sessions identify the target provider so current Codex versions can
+    // resume them, while still leaving model and base instructions unpinned.
     let mut session = sample_session(SourceTool::Codex);
     session.model_provider = Some("cpa-gui".to_string());
     session.model = Some("some-model".to_string());
@@ -116,8 +120,77 @@ fn writes_codex_session_without_model_pinning() {
     let output = codex::write_session(&session).unwrap();
     let record: Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
 
-    assert!(record["payload"].get("model_provider").is_none());
-    assert!(record["payload"].get("base_instructions").is_none());
+    assert_eq!(record["payload"]["model_provider"], "cpa-gui");
+    assert!(record["payload"].get("base_instructions").is_some());
+    assert_eq!(record["payload"]["cli_version"], "0.147.0");
+}
+
+#[test]
+fn registers_codex_thread_with_preview() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("state_5.sqlite");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                model_provider TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                approval_mode TEXT NOT NULL,
+                has_user_event INTEGER NOT NULL,
+                archived INTEGER NOT NULL,
+                cli_version TEXT NOT NULL,
+                first_user_message TEXT NOT NULL,
+                memory_mode TEXT NOT NULL,
+                model TEXT,
+                thread_source TEXT,
+                preview TEXT NOT NULL,
+                created_at_ms INTEGER,
+                updated_at_ms INTEGER,
+                recency_at INTEGER NOT NULL,
+                recency_at_ms INTEGER NOT NULL,
+                history_mode TEXT NOT NULL,
+                is_pinned INTEGER NOT NULL
+            )",
+        )
+        .unwrap();
+
+    let mut session = sample_session(SourceTool::Codex);
+    session.cwd = r"F:\proj".to_string();
+    session.model_provider = Some("cpa-gui".to_string());
+    session.model = Some("gpt-5.6-luna".to_string());
+    let rollout = temp.path().join("rollout-test.jsonl");
+
+    codex::register_thread(&session, "s1", &rollout, temp.path()).unwrap();
+
+    let row = connection
+        .query_row(
+            "SELECT model_provider, cwd, title, first_user_message, preview
+             FROM threads WHERE id = 's1'",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .unwrap();
+
+    assert_eq!(row.0, "cpa-gui");
+    assert_eq!(row.1, r"\\?\F:\proj");
+    assert_eq!(row.2, "hello");
+    assert_eq!(row.3, "hello");
+    assert_eq!(row.4, "hello");
 }
 
 #[test]
@@ -254,6 +327,7 @@ fn opencode_database_round_trips_messages_and_tool_calls() {
     let mut session = sample_session(SourceTool::OpenCode);
     session.cwd = "F:/proj".to_string();
 
+    opencode::init_database(&database).unwrap();
     let result = opencode::write_session_to_database(&session, &database).unwrap();
     assert!(result.session_id.starts_with("ses_"));
 
