@@ -218,3 +218,7 @@ npm run dist:mac    # macOS .app 与 DMG
 仓库贡献约定：[AGENTS.md](AGENTS.md)
 
 > `docs/plans/` 为本地设计记录，不随公开仓库发布。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 开源。
