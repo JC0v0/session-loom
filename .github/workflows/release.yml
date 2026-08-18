@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  build-windows:
+    name: Build Windows installer
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Sync release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/sync-release-version.cjs
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build NSIS installer
+        run: npm run dist
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-loom-windows
+          if-no-files-found: error
+          path: |
+            target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe
+
+  build-macos:
+    name: Build macOS DMG
+    needs: verify
+    runs-on: macos-latest
+    env:
+      APPLE_SIGNING_IDENTITY: '-'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Sync release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/sync-release-version.cjs
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build macOS application and DMG
+        run: npm run dist:mac
+
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-loom-macos
+          if-no-files-found: error
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: Session-Loom ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/**/*
