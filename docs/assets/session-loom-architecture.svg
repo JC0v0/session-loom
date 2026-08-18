@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">Session-Loom architecture</title>
+  <desc id="desc">Five AI coding tools mirror sessions into a canonical SQLite store, then restore them into any supported tool.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#15152b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffbd5a"/>
+      <stop offset="1" stop-color="#ef6b3a"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#83f0cf"/>
+      <stop offset="1" stop-color="#55c7bd"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12Z" fill="#ffad4d"/>
+    </marker>
+    <marker id="arrowMint" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12Z" fill="#70dfc9"/>
+    </marker>
+  </defs>
+
+  <rect width="1440" height="760" rx="34" fill="url(#bg)"/>
+  <circle cx="1260" cy="90" r="210" fill="#ef6b3a" opacity=".08"/>
+  <circle cx="180" cy="700" r="260" fill="#55c7bd" opacity=".06"/>
+
+  <text x="76" y="88" fill="#fff" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="36" font-weight="700">Session-Loom</text>
+  <text x="76" y="126" fill="#aeb7d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19">Mirror once. Store canonically. Restore anywhere.</text>
+  <rect x="76" y="154" width="126" height="6" rx="3" fill="url(#accent)"/>
+
+  <text x="94" y="220" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="2">SOURCE CHANNELS</text>
+  <text x="592" y="220" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="2">CANONICAL CORE</text>
+  <text x="1112" y="220" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="2">RESTORE TARGETS</text>
+
+  <g filter="url(#shadow)">
+    <rect x="76" y="246" width="360" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="76" y="334" width="360" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="76" y="422" width="360" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="76" y="510" width="360" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="76" y="598" width="360" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+  </g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <circle cx="112" cy="282" r="12" fill="#ff9f43"/><text x="140" y="289" fill="#f7f8fc" font-size="22" font-weight="600">Claude Code</text>
+    <circle cx="112" cy="370" r="12" fill="#d9a441"/><text x="140" y="377" fill="#f7f8fc" font-size="22" font-weight="600">Codex</text>
+    <circle cx="112" cy="458" r="12" fill="#55c7bd"/><text x="140" y="465" fill="#f7f8fc" font-size="22" font-weight="600">OpenCode</text>
+    <circle cx="112" cy="546" r="12" fill="#9b7bea"/><text x="140" y="553" fill="#f7f8fc" font-size="22" font-weight="600">DeepSeek Harness</text>
+    <circle cx="112" cy="634" r="12" fill="#f28c42"/><text x="140" y="641" fill="#f7f8fc" font-size="22" font-weight="600">Pi coding agent</text>
+  </g>
+
+  <g stroke="#ffad4d" stroke-width="3" fill="none" marker-end="url(#arrow)" opacity=".9">
+    <path d="M436 282C500 282 492 300 548 300"/>
+    <path d="M436 370C500 370 492 338 548 338"/>
+    <path d="M436 458C500 458 492 376 548 376"/>
+    <path d="M436 546C500 546 492 414 548 414"/>
+    <path d="M436 634C500 634 492 452 548 452"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="548" y="246" width="350" height="270" rx="26" fill="#202744" stroke="#4c587c"/>
+    <rect x="582" y="282" width="282" height="74" rx="16" fill="#2b3354"/>
+    <rect x="582" y="376" width="282" height="106" rx="16" fill="#151a31" stroke="#384467"/>
+  </g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="610" y="319" fill="#fff" font-size="24" font-weight="700">Mirror daemon</text>
+    <text x="610" y="344" fill="#aeb7d0" font-size="16">poll • parse • fingerprint</text>
+    <text x="610" y="418" fill="#70dfc9" font-size="22" font-weight="700">canonical session</text>
+    <text x="610" y="448" fill="#aeb7d0" font-size="17">SQLite · schema version · cwd</text>
+    <text x="610" y="474" fill="#aeb7d0" font-size="17">messages · tool calls · trash</text>
+  </g>
+
+  <path d="M898 381H1040" stroke="#70dfc9" stroke-width="4" fill="none" marker-end="url(#arrowMint)"/>
+  <text x="919" y="350" fill="#70dfc9" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">RESTORE</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1040" y="246" width="324" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="1040" y="334" width="324" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="1040" y="422" width="324" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="1040" y="510" width="324" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+    <rect x="1040" y="598" width="324" height="72" rx="18" fill="#1b2138" stroke="#303955"/>
+  </g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="1074" y="289" fill="#f7f8fc" font-size="21" font-weight="600">Claude Code</text>
+    <text x="1074" y="377" fill="#f7f8fc" font-size="21" font-weight="600">Codex</text>
+    <text x="1074" y="465" fill="#f7f8fc" font-size="21" font-weight="600">OpenCode</text>
+    <text x="1074" y="553" fill="#f7f8fc" font-size="21" font-weight="600">DeepSeek Harness</text>
+    <text x="1074" y="641" fill="#f7f8fc" font-size="21" font-weight="600">Pi coding agent</text>
+  </g>
+
+  <text x="76" y="724" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15">Local-first · project-aware · no prompt replay · native session formats</text>
+</svg>

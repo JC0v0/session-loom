@@ -1,49 +1,88 @@
-# Session-Loom
+<p align="center">
+  <img src="ui/icon.png" alt="Session-Loom logo" width="112" />
+</p>
 
-把 **Claude Code**、**Codex**、**OpenCode**、**DeepSeek Harness** 和 **Pi** 的会话持续镜像到一份统一、带版本号的 canonical 格式中,并能将任意一份会话**恢复到另一个工具里原生续接**——不复制粘贴、不重新解释上下文。
+<h1 align="center">Session-Loom</h1>
 
-这五个工具各自使用私有的会话存储格式,官方都没有双向导入能力。Session-Loom 通过「镜像 → 统一格式 → 恢复」补上这块空白:
+<p align="center">
+  <strong>把 AI coding agent 的会话，变成真正可迁移的工作资产。</strong><br />
+  Mirror once. Store canonically. Restore anywhere.
+</p>
 
-```
-~/.codex/sessions ────────┐
-~/.claude/projects ───────┤
-opencode 数据库 ───────────┼─→ 守护进程(轮询镜像)─→ canonical 会话(SQLite)─→ 按需恢复 ─→ 对端工具原生会话
-~/.dsh/sessions ──────────┤
-~/.pi/agent/sessions ──────┘
-```
+<p align="center">
+  <a href="https://github.com/JC0v0/session-loom"><img src="https://img.shields.io/badge/status-early%20stage-f59e0b?style=flat-square" alt="Early stage" /></a>
+  <img src="https://img.shields.io/badge/Rust-1.77%2B-f97316?style=flat-square&logo=rust&logoColor=white" alt="Rust 1.77+" />
+  <img src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
+  <img src="https://img.shields.io/badge/storage-SQLite-0f766e?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite" />
+</p>
 
-## 特性
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#支持的渠道">支持渠道</a> ·
+  <a href="#cli-用法">CLI</a> ·
+  <a href="#参与贡献">参与贡献</a>
+</p>
 
-- **多向会话迁移**:Codex 会话可恢复为 Claude Code、OpenCode、DeepSeek Harness 或 Pi 会话,反之亦然;恢复结果能被各工具的原生会话列表列出并续接。
-- **持续镜像**:后台守护进程以 2 秒轮询监听五个渠道的会话目录/数据库,会话一旦新增或更新即同步进 canonical 存储;镜像进程**只读不写**被监听数据,不会自回声。
-- **canonical 中间格式**:会话统一为带 schema 版本的结构(sourceTool、sessionId、cwd、时间戳、有序消息与工具调用),持久化在 SQLite 中,为归档、搜索、跨机同步留好扩展点。
-- **只迁移对话**:迁移用户/助手消息与工具调用记录(name、input、output 原样保留,**不重新执行**),丢弃源工具的系统提示词与 IDE 注入的上下文。
-- **真删除与回收站**:删除会话会尽力删除原始会话文件,并把镜像归档到 30 天回收站;回收站内可恢复或彻底删除,墓碑机制保证被删会话不会被守护进程重新镜像回来。
-- **桌面应用**:Tauri 2 桌面客户端——会话浏览、全文搜索、按来源过滤、对话详情(含工具调用展开)、一键恢复到其他工具、删除会话、回收站视图、守护进程开关。支持 Windows(NSIS 安装包)与 macOS(app / DMG)。
-- **命令行 `ssl`**:`daemon` / `restore` / `list` / `search` / `export` / `delete` / `trash` 七个命令,纯文本输出,脚本友好。Windows 安装包会附带 `ssl` 并自动加入当前用户 PATH,装完应用即可在终端直接使用 `ssl`。
+<p align="center">
+  <img src="docs/assets/session-loom-architecture.svg" alt="Session-Loom architecture" width="100%" />
+</p>
 
-## 架构
+## 一句话理解
 
-Rust workspace,三个 crate 共享一份领域逻辑:
+Session-Loom 是一个 **local-first 的 AI coding session bridge**：它持续读取 Claude Code、Codex、OpenCode、DeepSeek Harness 和 Pi 的私有会话存储，把对话、工具调用、工作目录和时间线镜像进统一的 canonical SQLite；需要时，再写回目标工具自己的原生格式。
 
-```
-session-loom/
-├── crates/
-│   ├── session-loom-core/     # 核心:canonical 模型、五渠道读写适配器、
-│   │                          # SQLite 存储、恢复、轮询 watcher、删除/回收站、守护进程生命周期
-│   └── session-loom-cli/      # ssl 命令行(clap),只做参数解析,逻辑全部在 core
-├── src-tauri/                 # Tauri 2 桌面壳,直接复用 session-loom-core;
-│   └── binaries/              # 构建时由 scripts/prepare-rust-cli.cjs 放入 ssl 边车二进制
-├── ui/                        # 桌面前端(原生 HTML/CSS/JS,无构建步骤;
-│                              # 改 ui/theme.css 后运行 node scripts/inline-theme.cjs)
-└── docs/plans/                # 设计与规划文档
-```
+> 不复制粘贴上下文，不重新执行工具调用，不把一套 agent 锁死在一个工具里。
 
-守护进程镜像,CLI 和桌面端恢复;三者都落在同一份 canonical 存储上。
+## 为什么需要它？
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h3>🧵 保留上下文</h3>
+      <p>用户消息、助手回复、工具调用和输出统一归档，迁移时不需要重新解释上下文。</p>
+    </td>
+    <td width="33%" valign="top">
+      <h3>📁 保留项目</h3>
+      <p>会话的工作目录会跟随迁移，并写入各渠道自己的项目索引与原生元数据。</p>
+    </td>
+    <td width="33%" valign="top">
+      <h3>↩️ 随时回退</h3>
+      <p>删除操作进入 30 天回收站，源文件、canonical 镜像和墓碑机制共同避免误删与自回声。</p>
+    </td>
+  </tr>
+</table>
+
+## 支持的渠道
+
+| 渠道 | 读取来源 | 恢复方式 | 项目归属 |
+|---|---|---|---|
+| **Claude Code** | `~/.claude/projects` | JSONL + `history.jsonl` | 编码后的项目目录与 history 索引 |
+| **Codex** | `~/.codex/sessions` | 原生 rollout JSONL | `session_meta.payload.cwd` |
+| **OpenCode** | SQLite 数据库 | 原生 SQLite session / message / part | project、project_directory、session.directory |
+| **DeepSeek Harness** | `~/.dsh/sessions` | JSONL / zstd session log | session header + `workspace.json` |
+| **Pi** | `~/.pi/agent/sessions` | 原生 Pi JSONL v3 | 项目目录与 session header `cwd` |
+
+所有渠道都支持：**镜像、浏览、搜索、删除、回收站、恢复到其他渠道**。
+
+## 核心能力
+
+- **多向会话迁移**：任意支持的渠道 ↔ 任意支持的渠道。
+- **持续镜像**：守护进程默认每 2 秒轮询，源数据只读，不产生回声循环。
+- **统一 canonical 格式**：schema version、source tool、session id、cwd、时间线、消息与工具调用。
+- **项目感知恢复**：目标渠道不仅收到对话，也会收到对应的工作目录和项目索引。
+- **结构保真**：工具调用的 name、input、output 原样保留，但不会重新执行。
+- **桌面端 + CLI**：Tauri 2 桌面应用与 `ssl` 命令行共用同一套 Rust domain core。
+- **安全删除**：删除源会话并归档 canonical 快照，30 天内可从回收站恢复。
 
 ## 快速开始
 
-环境要求:**Rust**(≥ 1.77.2,建议最新 stable)、**Node.js**(仅用于跑 npm 脚本和 Tauri CLI);Windows 桌面端依赖 WebView2。
+### 环境要求
+
+- Rust `>= 1.77.2`（建议最新 stable）
+- Node.js（用于 npm 脚本与 Tauri CLI）
+- Windows 桌面端需要 WebView2
+
+### 安装
 
 ```bash
 git clone https://github.com/JC0v0/session-loom.git
@@ -51,88 +90,132 @@ cd session-loom
 npm install
 ```
 
-运行桌面应用(首次编译约 2 分钟):
+### 启动桌面应用
+
+首次编译可能需要几分钟：
 
 ```bash
 npm run desktop
 ```
 
-或直接使用 CLI:
+### 直接使用 CLI
 
 ```bash
-npm start -- list                 # 等价于 cargo run -p session-loom-cli -- list
-npm start -- daemon start         # 启动后台镜像守护进程
-npm start -- restore --to codex   # 把最近的会话恢复到 Codex
-npm start -- trash list           # 查看回收站
-```
-
-测试与质量:
-
-```bash
-npm test                                   # = cargo test --workspace
-cargo fmt --all -- --check                 # 格式检查
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-打包发布:
-
-```bash
-npm run dist        # Windows:NSIS 安装包
-npm run dist:mac    # macOS:.app 与 DMG
+npm start -- list
+npm start -- daemon start
+npm start -- restore --to codex
+npm start -- trash list
 ```
 
 ## CLI 用法
 
 ```text
-ssl daemon [run|start|stop|status]       管理后台镜像守护进程(默认 start)
-ssl restore --to <codex|claude|opencode|dsh|pi> [id]  恢复会话到目标工具;省略 id 时取最近一条
-ssl list [--tool <codex|claude|opencode|dsh|pi>]      列出 canonical 会话
-ssl search <关键词…>                     按内容或目录搜索会话
-ssl export <id>                          导出一条会话的 canonical JSON
-ssl delete <id>                          删除会话(镜像 + 原始会话),归档进 30 天回收站
-ssl trash list                           列出回收站条目
-ssl trash restore <id>                   把回收站中的会话恢复到镜像列表
-ssl trash delete <id>                    彻底删除回收站中的会话(不可恢复)
+ssl daemon [run|start|stop|status]        管理后台镜像守护进程
+ssl restore --to <codex|claude|opencode|dsh|pi> [id]
+                                          恢复会话到目标工具；省略 id 时取最近一条
+ssl list [--tool <codex|claude|opencode|dsh|pi>]
+                                          列出 canonical 会话
+ssl search <关键词…>                      按内容或目录搜索会话
+ssl export <id>                           导出一条会话的 canonical JSON
+ssl delete <id>                           删除会话并归档进回收站
+ssl trash list                            列出回收站条目
+ssl trash restore <id>                    恢复回收站中的会话
+ssl trash delete <id>                     彻底删除回收站中的会话
 ```
 
-成功退出码为 0,运行失败为 1,用法错误为 2(clap)。
+退出码：成功 `0`，运行失败 `1`，用法错误 `2`。
 
 ## 桌面应用
 
-- 左侧:搜索框 + 全部 / Codex / Claude / OpenCode / DSH / Pi 标签页 + 会话卡片列表(标题、消息数、相对时间、工作目录);「回收站」按钮进入回收站模式,列出已删除会话并可恢复或彻底删除。
-- 右侧:对话详情——逐条消息与可折叠的工具调用记录,一键「恢复到其他工具继续对话」「复制回本工具」「删除会话(移入回收站)」。
-- 顶栏:守护进程运行状态,点击即可启动/停止镜像。
+桌面端提供：
+
+- 全部 / Codex / Claude / OpenCode / DSH / Pi 渠道筛选
+- 会话卡片：标题、消息数量、更新时间、工作目录
+- 对话详情与可折叠工具调用
+- 一键恢复到其他工具继续对话
+- 删除、回收站恢复与彻底删除
+- 顶栏守护进程状态与开关
+
+## 架构
+
+Rust workspace 的三个 crate 共享同一套领域逻辑：
+
+```text
+session-loom/
+├── crates/
+│   ├── session-loom-core/     # canonical、适配器、SQLite、watcher、恢复、回收站
+│   └── session-loom-cli/      # ssl CLI，仅负责参数解析与命令编排
+├── src-tauri/                 # Tauri 2 桌面壳
+│   └── binaries/              # 构建时注入 ssl 边车二进制
+├── ui/                        # 原生 HTML/CSS/JS 桌面界面
+└── docs/plans/                # 设计与规划文档
+```
+
+三条路径共享同一个 canonical store：
+
+```text
+源工具存储 ──▶ watcher / adapter ──▶ canonical SQLite ──▶ restore adapter ──▶ 目标工具原生存储
+                                      │
+                                      ├── CLI
+                                      ├── Tauri desktop
+                                      └── trash / search / export
+```
 
 ## 数据位置与环境变量
 
-运行时数据全部存放在仓库之外:
+运行时数据全部存放在仓库之外：
 
 | 内容 | 默认位置 | 覆盖变量 |
 |---|---|---|
-| canonical 存储(`sessions.db`、`daemon.pid`) | `~/.session-loom/` | `SESSION_LOOM_STORE`(兼容 `SESSION_BRIDGE_STORE`) |
-| 回收站(被删会话的归档) | `~/.session-loom/trash/` | 随 `SESSION_LOOM_STORE` |
-| Codex 会话监听目录 | `~/.codex/sessions` | `CODEX_SESSIONS_ROOT` |
-| Claude 会话监听目录 / 恢复根目录 | `~/.claude/projects` / `~/.claude` | `CLAUDE_ROOT` |
-| OpenCode 数据库 / 数据目录 | `<data>/opencode/opencode.db` | `OPENCODE_DB`、`OPENCODE_DATA_DIR`(兼容 `XDG_DATA_HOME`) |
-| DeepSeek Harness 会话监听/恢复根目录 | `~/.dsh/sessions` | `DSH_SESSIONS_ROOT`(兼容 `DSH_HOME`) |
-| Pi 会话监听/恢复根目录 | `~/.pi/agent/sessions` | `PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR` |
+| canonical 存储 | `~/.session-loom/` | `SESSION_LOOM_STORE` |
+| 回收站 | `~/.session-loom/trash/` | 随 `SESSION_LOOM_STORE` |
+| Codex 会话 | `~/.codex/sessions` | `CODEX_SESSIONS_ROOT` |
+| Claude Code 会话 / 恢复根目录 | `~/.claude/projects` / `~/.claude` | `CLAUDE_ROOT` |
+| OpenCode 数据库 | `<data>/opencode/opencode.db` | `OPENCODE_DB`、`OPENCODE_DATA_DIR` |
+| DeepSeek Harness 会话 | `~/.dsh/sessions` | `DSH_SESSIONS_ROOT`、`DSH_HOME` |
+| Pi 会话 | `~/.pi/agent/sessions` | `PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR` |
 
-> 注意:会话数据库、对话内容属于本地隐私数据,请勿提交到仓库。
+> 会话数据库、对话内容和凭据都属于本地隐私数据，请勿提交到仓库。
+
+## 开发与质量
+
+```bash
+npm test
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+打包发布：
+
+```bash
+npm run dist        # Windows NSIS 安装包
+npm run dist:mac    # macOS .app 与 DMG
+```
 
 ## 设计原则
 
-- **统一中间格式,而非两两直连转换**:新增工具只需一对读写适配器。
-- **镜像与恢复分离**:守护进程只镜像,恢复是显式的按需动作,避免把目标目录写回造成的回声循环。
-- **结构保真,不做语义重放**:工具调用按记录保留,恢复到对端后不重新执行。
-- **只搬对话,不搬提示词**:目标工具使用自己的系统提示词继续任务。
-- **删除可回退**:真删除前先把镜像归档进 30 天回收站;源会话删除失败不影响镜像删除,数据始终有兜底。
+- **统一中间格式，而不是两两直连转换**：新增渠道只需增加一对读写适配器。
+- **镜像与恢复分离**：守护进程只读镜像，恢复是显式动作。
+- **结构保真，不做语义重放**：工具调用只迁移记录，不自动执行。
+- **只搬对话，不搬提示词**：目标工具继续使用自己的系统提示词与项目配置。
+- **删除可回退**：源删除失败不影响 canonical 归档，数据始终有兜底。
 
 ## 已知局限
 
-- 各工具的会话格式均为**私有且未文档化**,工具升级可能改变格式,需要跟进适配。
-- 仅支持**同一台机器**上的迁移;跨机同步、统一归档检索等已在规划(见 `docs/plans/`),暂未实现。
+- 各工具的会话格式私有且未稳定文档化，工具升级可能需要更新适配器。
+- 当前只支持同一台机器上的迁移，跨机同步与统一归档检索仍在规划中。
+- 恢复会话不会复制项目文件、依赖或凭据，只迁移会话记录与项目归属元数据。
 
-## 文档
+## 参与贡献
 
-- 原始设计计划:[docs/plans/2026-08-14-1409-feat-session-bridge-plan.md](docs/plans/2026-08-14-1409-feat-session-bridge-plan.md)
-- 贡献指南与仓库约定:[AGENTS.md](AGENTS.md)
+欢迎通过 Issue 或 Pull Request 参与：
+
+1. 先描述目标工具版本与实际会话文件结构。
+2. 为适配器变化补充隔离的 Rust 测试。
+3. 提交前运行 `npm test`、`cargo fmt` 和 Clippy。
+4. 不要提交会话数据库、凭据、用户对话或生成的 CLI 二进制。
+
+设计计划与仓库约定：
+
+- [设计与规划文档](docs/plans/2026-08-14-1409-feat-session-bridge-plan.md)
+- [仓库贡献约定](AGENTS.md)
