@@ -101,6 +101,18 @@ fn reopening_a_migrated_store_records_the_schema_version() {
 }
 
 #[test]
+fn store_databases_use_wal_journaling_for_concurrent_access() {
+    let temp = tempfile::tempdir().unwrap();
+    Store::open(temp.path()).unwrap();
+
+    let connection = Connection::open(temp.path().join("sessions.db")).unwrap();
+    let mode: String = connection
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode.to_lowercase(), "wal");
+}
+
+#[test]
 fn reopened_store_still_heals_summaries_and_keeps_conversation_groups() {
     let temp = tempfile::tempdir().unwrap();
     {

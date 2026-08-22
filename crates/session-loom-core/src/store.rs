@@ -410,6 +410,14 @@ impl Store {
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(|error| error.to_string())?;
+        // WAL lets the mirror daemon keep writing while the desktop shell
+        // reads, instead of both sides trading the database-wide write lock.
+        // The mode persists in the database header, so after the first
+        // conversion this is a cheap no-op; on filesystems that cannot host
+        // WAL files the error is ignored and the default journal remains.
+        let _ = connection.query_row("PRAGMA journal_mode = WAL", [], |row| {
+            row.get::<_, String>(0)
+        });
         // If the database file was deleted while a daemon kept running, a
         // bare Connection::open above recreates an empty file without the
         // schema. Re-create the schema so every operation self-heals.
@@ -424,7 +432,10 @@ impl Store {
             create_schema(&connection)?;
         }
         connection
-            .execute_batch("PRAGMA foreign_keys = ON;")
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA synchronous = NORMAL;",
+            )
             .map_err(|error| error.to_string())?;
         Ok(connection)
     }
