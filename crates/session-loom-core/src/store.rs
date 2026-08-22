@@ -11,6 +11,11 @@ use uuid::Uuid;
 
 const SUMMARY_MIGRATION_BATCH_SIZE: i64 = 20;
 
+/// Bumped whenever a new migration is added to [`Store::open`]. Stores whose
+/// `PRAGMA user_version` already equals this value skip the migration pass
+/// entirely, so steady-state opens never re-read the whole table.
+pub const SCHEMA_USER_VERSION: i32 = 1;
+
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
@@ -46,12 +51,15 @@ impl Store {
             database: root.join("sessions.db"),
         };
         let mut connection = store.connection()?;
-        create_schema(&connection)?;
-        migrate_source_path_column(&connection)?;
-        migrate_conversation_id_column(&connection)?;
-        migrate_legacy_json(&mut connection, &store.root)?;
-        migrate_conversations(&mut connection)?;
-        migrate_summaries(&mut connection)?;
+        if user_version(&connection) != SCHEMA_USER_VERSION {
+            create_schema(&connection)?;
+            migrate_source_path_column(&connection)?;
+            migrate_conversation_id_column(&connection)?;
+            migrate_legacy_json(&mut connection, &store.root)?;
+            migrate_conversations(&mut connection)?;
+            migrate_summaries(&mut connection)?;
+            set_user_version(&connection, SCHEMA_USER_VERSION)?;
+        }
         Ok(store)
     }
 
@@ -492,72 +500,118 @@ fn migrate_conversation_id_column(connection: &Connection) -> Result<(), String>
 /// content copies are grouped together so existing Codex -> Claude -> Pi
 /// duplicates collapse on the first database open after this migration.
 fn migrate_conversations(connection: &mut Connection) -> Result<(), String> {
-    let rows = {
-        let mut statement = connection
-            .prepare(
-                "SELECT session_id, payload, conversation_id FROM sessions
-                 ORDER BY updated_at, session_id",
-            )
-            .map_err(|error| error.to_string())?;
-        let collected = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?;
-        collected
-    };
-    if rows.is_empty() {
+    // Fast path: when nothing is left unassigned the payload pass below can
+    // be skipped entirely, keeping steady-state opens O(1) instead of
+    // re-parsing the whole table on every launch.
+    let pending = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sessions
+         WHERE conversation_id IS NULL OR conversation_id = ''",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if pending == 0 {
         return Ok(());
     }
 
-    let mut groups = HashMap::new();
-    let mut existing_by_key = HashMap::new();
-    for (_, payload, existing_id) in &rows {
-        let Some(existing_id) = existing_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        else {
-            continue;
-        };
-        if let Ok(session) = CanonicalSession::from_json(payload) {
-            existing_by_key
-                .entry(session_content_key(&session))
-                .or_insert_with(|| existing_id.to_string());
+    // Stream rows one at a time and retain only lightweight identity tuples;
+    // payloads (and their content hashes) are never held for the whole table,
+    // so a large store does not materialize fully in memory.
+    let mut statement = connection
+        .prepare(
+            "SELECT session_id, payload, conversation_id FROM sessions
+         ORDER BY updated_at, session_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let entries: HashMap<String, (Option<u64>, Option<String>)> = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .filter_map(|row| {
+            let (session_id, payload, existing) = row.ok()?;
+            let key = CanonicalSession::from_json(&payload)
+                .ok()
+                .and_then(|session| session_content_hash(&session));
+            let existing = existing.filter(|value| !value.trim().is_empty());
+            Some((session_id, (key, existing)))
+        })
+        .collect();
+    drop(statement);
+
+    // Assigned rows seed the authoritative key -> id map first-wins in
+    // `updated_at` order; unassigned rows then join an existing group, an
+    // earlier unassigned sibling's group, or start a fresh conversation.
+    let mut key_to_existing: HashMap<u64, String> = HashMap::new();
+    for (key, existing) in entries.values() {
+        if let (Some(key), Some(existing)) = (key, existing) {
+            key_to_existing
+                .entry(*key)
+                .or_insert_with(|| existing.clone());
         }
     }
+    let mut key_to_group: HashMap<u64, String> = HashMap::new();
+    let mut updates: Vec<(String, String)> = vec![];
+    for (session_id, (key, existing)) in &entries {
+        let assigned = match existing {
+            Some(existing) => existing.clone(),
+            None => key
+                .and_then(|key| key_to_existing.get(&key).cloned())
+                .or_else(|| key.and_then(|key| key_to_group.get(&key).cloned()))
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+        };
+        if let Some(key) = key {
+            key_to_group.entry(*key).or_insert_with(|| assigned.clone());
+        }
+        if existing.as_deref() != Some(assigned.as_str()) {
+            updates.push((assigned.clone(), session_id.clone()));
+        }
+    }
+
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
-    for (session_id, payload, existing_id) in rows {
-        let key = CanonicalSession::from_json(&payload)
-            .ok()
-            .map(|session| session_content_key(&session));
-        let current_id = existing_id.filter(|value| !value.trim().is_empty());
-        let conversation_id = current_id.clone().unwrap_or_else(|| {
-            key.as_ref()
-                .and_then(|key| existing_by_key.get(key).cloned())
-                .or_else(|| key.as_ref().and_then(|key| groups.get(key).cloned()))
-                .unwrap_or_else(|| Uuid::new_v4().to_string())
-        });
-        if let Some(key) = key {
-            groups.entry(key).or_insert_with(|| conversation_id.clone());
-        }
-        if current_id.as_deref() != Some(conversation_id.as_str()) {
-            transaction
-                .execute(
-                    "UPDATE sessions SET conversation_id = ? WHERE session_id = ?",
-                    params![conversation_id, session_id],
-                )
+    {
+        let mut statement = transaction
+            .prepare("UPDATE sessions SET conversation_id = ? WHERE session_id = ?")
+            .map_err(|error| error.to_string())?;
+        for (conversation_id, session_id) in &updates {
+            statement
+                .execute(params![conversation_id, session_id])
                 .map_err(|error| error.to_string())?;
         }
     }
     transaction.commit().map_err(|error| error.to_string())
+}
+
+/// A stable 64-bit fingerprint of everything that makes two sessions the
+/// same logical conversation. Hashing keeps per-row state constant-size
+/// while remaining deterministic across processes and platforms.
+fn session_content_hash(session: &CanonicalSession) -> Option<u64> {
+    use std::hash::Hasher;
+    let key = session_content_key(session);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write(key.as_bytes());
+    Some(hasher.finish())
+}
+
+fn user_version(connection: &Connection) -> i32 {
+    connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap_or(0)
+}
+
+fn set_user_version(connection: &Connection, version: i32) -> Result<(), String> {
+    // PRAGMA values cannot be bound as parameters, but the version is a
+    // compile-time constant so formatting it is safe.
+    connection
+        .execute_batch(&format!("PRAGMA user_version = {version};"))
+        .map_err(|error| error.to_string())
 }
 
 fn resolve_conversation_id(

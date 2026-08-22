@@ -89,6 +89,47 @@ fn identical_cross_tool_sessions_share_one_card() {
 }
 
 #[test]
+fn reopening_a_migrated_store_records_the_schema_version() {
+    let temp = tempfile::tempdir().unwrap();
+    Store::open(temp.path()).unwrap();
+
+    let connection = Connection::open(temp.path().join("sessions.db")).unwrap();
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, session_loom_core::store::SCHEMA_USER_VERSION);
+}
+
+#[test]
+fn reopened_store_still_heals_summaries_and_keeps_conversation_groups() {
+    let temp = tempfile::tempdir().unwrap();
+    {
+        let store = Store::open(temp.path()).unwrap();
+        store.write_session(&sample()).unwrap();
+        let mut copy = sample();
+        copy.session_id = "claude-copy".to_string();
+        copy.source_tool = SourceTool::Claude;
+        store.write_session(&copy).unwrap();
+    }
+
+    // Simulate a legacy row state and rely on the read path (not the
+    // version-gated migration) to heal the missing summary on reopen.
+    let connection = Connection::open(temp.path().join("sessions.db")).unwrap();
+    connection
+        .execute("DELETE FROM session_summaries", [])
+        .unwrap();
+    drop(connection);
+
+    let store = Store::open(temp.path()).unwrap();
+    let cards = store.list_cards(ListFilter::default()).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].tools, vec!["claude", "codex"]);
+    assert_eq!(cards[0].instance_count, 2);
+    assert_eq!(cards[0].title, "帮我修一下这个 bug");
+    assert_eq!(cards[0].message_count, 1);
+}
+
+#[test]
 fn store_updates_summary_in_the_same_write_path() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::open(temp.path()).unwrap();
