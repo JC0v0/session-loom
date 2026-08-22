@@ -13,12 +13,26 @@ pub struct DaemonState {
     pub pid: Option<u32>,
 }
 
+/// How long after the last heartbeat a daemon may still be considered
+/// running from the heartbeat alone. Generous because the mirror loop only
+/// promises one beat per two-second scan interval.
+const HEARTBEAT_FRESH_AFTER: Duration = Duration::from_secs(10);
+
 pub fn daemon_state(store_root: &Path) -> DaemonState {
     let pid_path = pid_file(store_root);
     let Some(pid) = read_pid(&pid_path) else {
         let _ = fs::remove_file(pid_path);
         return stopped();
     };
+    // A freshly touched heartbeat proves the daemon loop is alive without
+    // paying for a tasklist plus PowerShell process spawn on every poll;
+    // callers poll this every few seconds from the desktop UI.
+    if heartbeat_is_fresh(store_root) {
+        return DaemonState {
+            running: true,
+            pid: Some(pid),
+        };
+    }
     if daemon_process_matches(pid) {
         DaemonState {
             running: true,
@@ -27,6 +41,36 @@ pub fn daemon_state(store_root: &Path) -> DaemonState {
     } else {
         let _ = remove_pid_file_if_matches(&pid_path, pid);
         stopped()
+    }
+}
+
+/// Records a liveness beat for the running daemon. Callers invoke this once
+/// per scan tick; the file's mtime is the signal, its contents are purely
+/// informational.
+pub fn write_heartbeat(store_root: &Path) {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or_default();
+    let _ = fs::write(heartbeat_path(store_root), timestamp.to_string());
+}
+
+fn heartbeat_path(store_root: &Path) -> PathBuf {
+    store_root.join("daemon.heartbeat")
+}
+
+fn heartbeat_is_fresh(store_root: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(heartbeat_path(store_root)) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    // A future mtime means the clock jumped backwards under us; treat the
+    // beat as fresh rather than permanently stale.
+    match std::time::SystemTime::now().duration_since(modified) {
+        Ok(age) => age <= HEARTBEAT_FRESH_AFTER,
+        Err(_) => true,
     }
 }
 
@@ -328,5 +372,42 @@ mod tests {
 
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[test]
+    fn a_fresh_heartbeat_reports_running_without_probing_the_process() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(super::pid_file(directory.path()), "999999").unwrap();
+        super::write_heartbeat(directory.path());
+
+        // The pid deliberately points nowhere: freshness of the heartbeat
+        // alone must answer the poll, without spawning any probe helper.
+        let state = super::daemon_state(directory.path());
+        assert!(state.running);
+        assert_eq!(state.pid, Some(999_999));
+    }
+
+    #[test]
+    fn a_missing_heartbeat_falls_back_to_process_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_path = super::pid_file(directory.path());
+        std::fs::write(&pid_path, std::process::id().to_string()).unwrap();
+
+        // This test process is alive but is not an ssl daemon, so the probe
+        // fallback must refuse it and clean up the stale pid file.
+        let state = super::daemon_state(directory.path());
+        assert!(!state.running);
+        assert_eq!(state.pid, None);
+        assert!(!pid_path.exists());
+    }
+
+    #[test]
+    fn a_heartbeat_without_a_pid_file_reports_stopped() {
+        let directory = tempfile::tempdir().unwrap();
+        super::write_heartbeat(directory.path());
+
+        let state = super::daemon_state(directory.path());
+        assert!(!state.running);
+        assert_eq!(state.pid, None);
     }
 }

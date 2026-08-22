@@ -69,6 +69,10 @@ impl SessionWatcher {
 
     pub fn run_forever(mut self, interval: Duration) -> ! {
         loop {
+            // Beat once per tick so daemon_status can stay cheap: freshness
+            // of this file answers "is the mirror alive" without spawning
+            // any process-probing helper from the UI's status polls.
+            crate::daemon::write_heartbeat(self.store.root());
             self.scan_once();
             thread::sleep(interval);
         }
