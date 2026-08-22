@@ -159,6 +159,9 @@ aside {
 .badge.opencode { color: #0E7C66; background: rgba(14, 124, 102, .09); }
 .badge.dsh { color: #6D3FD6; background: rgba(109, 63, 214, .09); }
 .badge.pi { color: #A05A00; background: rgba(160, 90, 0, .10); }
+.tool-stack { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 3px; }
+.tool-stack .badge { padding: 1px 5px; font-size: 9.5px; }
+.tool-linked { color: var(--text-faint); font-size: 11px; }
 
 #detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #detailBody { display: none; }
@@ -185,6 +188,8 @@ aside {
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn.danger { border-color: rgba(217, 63, 63, .4); color: var(--danger); }
 .btn.danger:hover { background: rgba(217, 63, 63, .08); border-color: rgba(217, 63, 63, .6); }
+.btn.linked { color: var(--text-faint); border-color: var(--border); cursor: default; }
+.btn.linked:hover { background: transparent; }
 .btn.block { display: block; width: 100%; }
 
 .trash-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; }
@@ -375,7 +380,7 @@ body.modal-open { overflow: hidden; }
   const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH', pi: 'Pi' };
   const toolLabel = (tool) => TOOL_LABELS[tool] || tool;
   const state = {
-    tool: 'all', query: '', sessions: [], selectedId: null, fingerprint: '',
+    tool: 'all', query: '', sessions: [], selectedId: null, selectedConversationId: null, fingerprint: '',
     mode: 'sessions', trash: [], trashSelectedId: null, trashFingerprint: '',
   };
 
@@ -470,13 +475,16 @@ body.modal-open { overflow: hidden; }
       if (requestVersion !== sessionLoadVersion || state.mode !== 'sessions') return;
       state.sessions = sessions;
       $('countPill').textContent = sessions.length + ' 个会话';
-      const fp = JSON.stringify(sessions.map((s) => s.sessionId + s.updatedAt));
+      const fp = JSON.stringify(sessions.map((s) => [s.conversationId, s.sessionId, s.updatedAt, s.instanceCount, s.tools]));
       if (fp !== state.fingerprint) {
         state.fingerprint = fp;
         renderList();
       }
       if (keepScroll) listEl.scrollTop = scroll;
-      if (state.selectedId && !sessions.some((s) => s.sessionId === state.selectedId)) {
+      const selectedCard = state.selectedConversationId && sessions.find((s) => s.conversationId === state.selectedConversationId);
+      if (selectedCard) {
+        state.selectedId = selectedCard.sessionId;
+      } else if (state.selectedConversationId) {
         clearDetail();
       }
     } catch (e) {
@@ -491,11 +499,12 @@ body.modal-open { overflow: hidden; }
       return;
     }
     listEl.innerHTML = state.sessions.map((s) => [
-      '<div class="card' + (s.sessionId === state.selectedId ? ' active' : '') + '" data-id="' + escapeHtml(s.sessionId) + '">',
+      '<div class="card' + (s.conversationId === state.selectedConversationId ? ' active' : '') + '" data-id="' + escapeHtml(s.conversationId) + '">',
       '  <div class="title">' + escapeHtml(s.title) + '</div>',
       '  <div class="meta">',
-      '    <span class="badge ' + s.sourceTool + '">' + toolLabel(s.sourceTool) + '</span>',
+      '    <span class="tool-stack">' + (s.tools || [s.sourceTool]).map((tool) => '<span class="badge ' + tool + '">' + toolLabel(tool) + '</span>').join('') + '</span>',
       '    <span class="count">' + s.messageCount + ' 条消息</span>',
+      s.instanceCount > 1 ? '    <span class="tool-linked">' + s.instanceCount + ' 个副本</span>' : '',
       '    <span class="rel" title="' + escapeHtml(fmtTime(s.updatedAt)) + '">' + relTime(s.updatedAt) + '</span>',
       '  </div>',
       '  <div class="cwd" title="' + escapeHtml(s.cwd) + '">' + escapeHtml(s.cwd) + '</div>',
@@ -508,6 +517,7 @@ body.modal-open { overflow: hidden; }
 
   function clearDetail() {
     state.selectedId = null;
+    state.selectedConversationId = null;
     state.trashSelectedId = null;
     emptyEl.style.display = 'grid';
     bodyEl.classList.remove('open');
@@ -519,17 +529,20 @@ body.modal-open { overflow: hidden; }
     }
   }
 
-  async function selectSession(id) {
-    state.selectedId = id;
+  async function selectSession(conversationId) {
+    const card = state.sessions.find((item) => item.conversationId === conversationId);
+    if (!card) return;
+    state.selectedConversationId = conversationId;
+    state.selectedId = card.sessionId;
     renderList();
     let session;
     try {
-      session = await api.get(id);
+      session = await api.get(card.sessionId);
     } catch (e) {
       toast('读取会话失败: ' + (e.message || e), false);
       return;
     }
-    renderDetail(session);
+    renderDetail(session, card);
   }
 
   function truncate(s, n) {
@@ -543,9 +556,11 @@ body.modal-open { overflow: hidden; }
     return t.length > 120 ? t.slice(0, 120) + '…' : t;
   }
 
-  function renderDetail(session) {
+  function renderDetail(session, card) {
     emptyEl.style.display = 'none';
     bodyEl.classList.add('open');
+    const linkedTools = card && card.tools && card.tools.length ? card.tools : [session.sourceTool];
+    const linkedInstances = card && card.instanceCount ? card.instanceCount : linkedTools.length;
     const otherTools = Object.keys(TOOL_LABELS).filter((tool) => tool !== session.sourceTool);
     const toolCalls = session.messages.reduce((n, m) => n + ((m.toolCalls && m.toolCalls.length) || 0), 0);
     const title = sessionTitle(session);
@@ -554,11 +569,12 @@ body.modal-open { overflow: hidden; }
       '<div class="detail-head">',
       '  <h1>' + escapeHtml(title) + '</h1>',
       '  <div class="detail-sub">',
-      '    <span class="badge ' + session.sourceTool + '">' + toolLabel(session.sourceTool) + '</span>',
+      '    <span class="tool-stack">' + linkedTools.map((tool) => '<span class="badge ' + tool + '">' + toolLabel(tool) + '</span>').join('') + '</span>',
       '    <span>' + session.messages.length + ' 条消息 · ' + toolCalls + ' 次工具调用</span>',
       '    <span>更新于 ' + escapeHtml(fmtTime(session.updatedAt)) + '</span>',
       '  </div>',
       '  <div class="detail-sub"><span class="cwd">' + escapeHtml(session.cwd) + '</span></div>',
+      '  <div class="detail-sub"><span class="tool-linked">' + linkedInstances + ' 个副本已关联</span></div>',
       '  <div class="detail-sub"><span class="sid" id="sidCopy" title="点击复制会话 ID">' + escapeHtml(session.sessionId) + '</span></div>',
       '  <div class="actions">',
     ].concat(
@@ -566,7 +582,6 @@ body.modal-open { overflow: hidden; }
         '    <button class="btn' + (index === 0 ? ' primary' : '') + '" id="btnRestore-' + tool + '">恢复到 ' + toolLabel(tool) + ' 继续对话</button>'
       ),
       [
-        '    <button class="btn" id="btnRestoreSame">复制回 ' + toolLabel(session.sourceTool) + '</button>',
         '    <button class="btn danger" id="btnDelete">删除会话</button>',
         '  </div>',
         '</div>',
@@ -590,9 +605,16 @@ body.modal-open { overflow: hidden; }
     });
 
     for (const tool of otherTools) {
-      $('btnRestore-' + tool).addEventListener('click', (e) => doRestore(session.sessionId, tool, e.target));
+      const button = $('btnRestore-' + tool);
+      if (!button) continue;
+      if (linkedTools.includes(tool)) {
+        button.disabled = true;
+        button.classList.add('linked');
+        button.textContent = toolLabel(tool) + ' 已关联';
+      } else {
+        button.addEventListener('click', (e) => doRestore(session.sessionId, tool, e.target));
+      }
     }
-    $('btnRestoreSame').addEventListener('click', (e) => doRestore(session.sessionId, session.sourceTool, e.target));
     $('btnDelete').addEventListener('click', async (event) => {
       const trigger = event.currentTarget;
       if (!await confirmDelete(session, title, trigger)) return;
@@ -649,6 +671,14 @@ body.modal-open { overflow: hidden; }
     try {
       const res = await api.restore(sessionId, target);
       toast(res.message, res.ok);
+      if (res.ok) {
+        const conversationId = state.selectedConversationId;
+        state.fingerprint = '';
+        await loadSessions(false);
+        if (conversationId && state.sessions.some((session) => session.conversationId === conversationId)) {
+          await selectSession(conversationId);
+        }
+      }
     } catch (e) {
       toast('恢复失败: ' + (e.message || e), false);
     } finally {

@@ -108,8 +108,12 @@ fn run(cli: Cli) -> Result<Option<String>, String> {
                 .into_iter()
                 .map(|card| {
                     format!(
-                        "{}\t{}\t{}\t{}",
-                        card.session_id, card.source_tool, card.cwd, card.updated_at
+                        "{}\t{}\t{}\t{}\t{}",
+                        card.session_id,
+                        card.source_tool,
+                        card.cwd,
+                        card.updated_at,
+                        card.tools.join(",")
                     )
                 })
                 .collect::<Vec<_>>()

@@ -11,6 +11,8 @@ pub const TRASH_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 pub struct TrashEntry {
     pub deleted_at: String,
     pub source_tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
     pub session: CanonicalSession,
@@ -38,10 +40,20 @@ impl Trash {
         session: &CanonicalSession,
         source_path: Option<&std::path::Path>,
     ) -> Result<(), String> {
+        self.add_with_conversation(session, source_path, None)
+    }
+
+    pub fn add_with_conversation(
+        &self,
+        session: &CanonicalSession,
+        source_path: Option<&std::path::Path>,
+        conversation_id: Option<&str>,
+    ) -> Result<(), String> {
         fs::create_dir_all(&self.directory).map_err(|error| error.to_string())?;
         let entry = TrashEntry {
             deleted_at: Utc::now().to_rfc3339(),
             source_tool: session.source_tool.as_str().to_string(),
+            conversation_id: conversation_id.map(str::to_string),
             source_path: source_path.map(|path| path.to_string_lossy().to_string()),
             session: session.clone(),
         };
@@ -125,7 +137,11 @@ pub fn restore_from_trash(
     let entry = trash
         .get(session_id)
         .ok_or_else(|| format!("回收站中找不到会话: {session_id}"))?;
-    store.write_session(&entry.session)?;
+    if let Some(conversation_id) = entry.conversation_id.as_deref() {
+        store.write_session_with_conversation(&entry.session, None, conversation_id)?;
+    } else {
+        store.write_session(&entry.session)?;
+    }
     trash.remove(session_id)?;
     Ok(entry.session)
 }

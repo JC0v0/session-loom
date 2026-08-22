@@ -38,6 +38,11 @@ pub struct RestoreResult {
     pub message: String,
 }
 
+struct RestoredArtifact {
+    session_id: String,
+    path: PathBuf,
+}
+
 pub fn restore_session(
     store: &Store,
     target: SourceTool,
@@ -52,40 +57,38 @@ pub fn restore_session(
         Ok(session) => session,
         Err(message) => return RestoreResult { ok: false, message },
     };
+    let conversation_id = match store.conversation_id(&session.session_id) {
+        Ok(value) => value,
+        Err(message) => return RestoreResult { ok: false, message },
+    };
 
-    let result = match target {
-        SourceTool::Dsh => dsh::write_session_to_root(&session, &roots.dsh).map(|result| {
-            format!(
-                "restored to DeepSeek Harness: {} ({})",
-                result.session_id,
-                result.log_file.display()
-            )
-        }),
+    let result: Result<RestoredArtifact, String> = match target {
+        SourceTool::Dsh => {
+            dsh::write_session_to_root(&session, &roots.dsh).map(|result| RestoredArtifact {
+                session_id: result.session_id,
+                path: result.log_file,
+            })
+        }
         SourceTool::OpenCode => {
             opencode::write_session_to_database(&session, &roots.opencode).map(|result| {
-                format!(
-                    "restored to OpenCode: {} ({})",
-                    result.session_id,
-                    result.database.display()
-                )
+                RestoredArtifact {
+                    session_id: result.session_id,
+                    path: result.database,
+                }
             })
         }
         SourceTool::Claude => {
-            claude::write_session_to_root(&session, &roots.claude).map(|result| {
-                format!(
-                    "restored to Claude Code: {} ({})",
-                    result.session_id,
-                    result.session_file.display()
-                )
+            claude::write_session_to_root(&session, &roots.claude).map(|result| RestoredArtifact {
+                session_id: result.session_id,
+                path: result.session_file,
             })
         }
-        SourceTool::Pi => pi::write_session_to_root(&session, &roots.pi).map(|result| {
-            format!(
-                "restored to Pi: {} ({})",
-                result.session_id,
-                result.session_file.display()
-            )
-        }),
+        SourceTool::Pi => {
+            pi::write_session_to_root(&session, &roots.pi).map(|result| RestoredArtifact {
+                session_id: result.session_id,
+                path: result.session_file,
+            })
+        }
         SourceTool::Codex => {
             let now = Local::now();
             let session_id = Uuid::new_v4().to_string();
@@ -126,12 +129,35 @@ pub fn restore_session(
                             codex::register_thread(&restored, &session_id, &file, &roots.codex_home)
                         })
                 })
-                .map(|_| format!("restored to Codex: {session_id} ({})", file.display()))
+                .map(|_| RestoredArtifact {
+                    session_id,
+                    path: file,
+                })
         }
     };
 
     match result {
-        Ok(message) => RestoreResult { ok: true, message },
+        Ok(artifact) => {
+            let mut linked = session.clone();
+            linked.session_id = artifact.session_id.clone();
+            linked.source_tool = target;
+            if let Err(message) = store.write_session_with_conversation(
+                &linked,
+                Some(&artifact.path),
+                &conversation_id,
+            ) {
+                return RestoreResult { ok: false, message };
+            }
+            RestoreResult {
+                ok: true,
+                message: format!(
+                    "restored to {}: {} ({})",
+                    target.as_str(),
+                    artifact.session_id,
+                    artifact.path.display()
+                ),
+            }
+        }
         Err(message) => RestoreResult { ok: false, message },
     }
 }

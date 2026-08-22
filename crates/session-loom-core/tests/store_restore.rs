@@ -7,6 +7,9 @@ use session_loom_core::{
 };
 use std::{fs, path::Path};
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn sample() -> CanonicalSession {
     CanonicalSession {
         schema_version: CANONICAL_SCHEMA_VERSION,
@@ -61,6 +64,28 @@ fn store_writes_reads_lists_searches_and_exports_sessions() {
             ["sessionId"],
         "s1"
     );
+}
+
+#[test]
+fn identical_cross_tool_sessions_share_one_card() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+
+    for (session_id, source_tool) in [
+        ("codex-1", SourceTool::Codex),
+        ("claude-1", SourceTool::Claude),
+        ("pi-1", SourceTool::Pi),
+    ] {
+        let mut session = sample();
+        session.session_id = session_id.to_string();
+        session.source_tool = source_tool;
+        store.write_session(&session).unwrap();
+    }
+
+    let cards = store.list_cards(ListFilter::default()).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].tools, vec!["claude", "codex", "pi"]);
+    assert_eq!(cards[0].instance_count, 3);
 }
 
 #[test]
@@ -204,9 +229,13 @@ fn card_list_uses_summary_without_parsing_the_full_payload() {
     let connection = Connection::open(store.db_path()).unwrap();
     connection
         .execute(
-            "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions
+             (session_id, conversation_id, source_tool, cwd, created_at, updated_at,
+              schema_version, payload, source_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 "broken",
+                Option::<String>::None,
                 "codex",
                 "/tmp/project",
                 "2026-01-01T00:00:00.000Z",
@@ -245,6 +274,8 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     let opencode_temp = tempfile::tempdir().unwrap();
     let opencode_db = opencode_temp.path().join("opencode.db");
     let dsh_temp = tempfile::tempdir().unwrap();
+    let dsh_home_temp = tempfile::tempdir().unwrap();
+    let _dsh_home_guard = common::isolate_dsh_home(dsh_home_temp.path());
     let pi_temp = tempfile::tempdir().unwrap();
     let store = Store::open(store_temp.path()).unwrap();
     store.write_session(&sample()).unwrap();
@@ -288,6 +319,14 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     assert_eq!(pi_restored.cwd, r"C:\proj");
     assert_eq!(pi_restored.messages[0].text, "帮我修一下这个 bug");
     assert_ne!(pi_restored.session_id, "s1");
+
+    let cards = store.list_cards(ListFilter::default()).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(
+        cards[0].tools,
+        vec!["claude", "codex", "dsh", "opencode", "pi"]
+    );
+    assert_eq!(cards[0].instance_count, 6);
 
     assert!(!restore_session(&store, SourceTool::Codex, Some("missing"), &roots).ok);
 }

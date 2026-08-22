@@ -36,12 +36,14 @@ pub fn delete_session(store: &Store, session_id: &str, roots: &RestoreRoots) -> 
         }
     };
     let trash = Trash::new(store.root());
-    if let Err(message) = trash.add(
+    let conversation_id = store.conversation_id(session_id).ok();
+    if let Err(message) = trash.add_with_conversation(
         &session,
         store
             .session_source_path(session_id)
             .as_deref()
             .map(Path::new),
+        conversation_id.as_deref(),
     ) {
         return DeleteResult {
             ok: false,
