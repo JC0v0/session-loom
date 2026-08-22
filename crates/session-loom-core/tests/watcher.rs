@@ -6,6 +6,9 @@ use session_loom_core::{
 };
 use std::fs;
 
+#[path = "common/mod.rs"]
+mod common;
+
 #[test]
 fn watcher_mirrors_new_and_growing_session_files() {
     let source = tempfile::tempdir().unwrap();
@@ -265,6 +268,8 @@ fn watcher_mirrors_dsh_session_logs() {
 
     let source = tempfile::tempdir().unwrap();
     let store_root = tempfile::tempdir().unwrap();
+    let dsh_home = tempfile::tempdir().unwrap();
+    let _dsh_home_guard = common::isolate_dsh_home(dsh_home.path());
     let store = Store::open(store_root.path()).unwrap();
     let project = source.path().join("--C--proj--");
     let dir = project.join("session-s1");

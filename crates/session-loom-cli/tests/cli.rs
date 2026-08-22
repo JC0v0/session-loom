@@ -111,6 +111,7 @@ fn rust_cli_restores_and_reports_missing_sessions() {
         .args(["restore", "--to", "dsh", "s1"])
         .env("SESSION_LOOM_STORE", store.path())
         .env("DSH_SESSIONS_ROOT", dsh.path())
+        .env("DSH_HOME", dsh.path())
         .output()
         .unwrap();
     assert!(restore_dsh.status.success());

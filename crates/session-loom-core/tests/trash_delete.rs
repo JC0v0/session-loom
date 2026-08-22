@@ -9,6 +9,9 @@ use session_loom_core::{
 };
 use std::{fs, path::Path, time::Duration};
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn sample(session_id: &str, source_tool: SourceTool) -> CanonicalSession {
     CanonicalSession {
         schema_version: CANONICAL_SCHEMA_VERSION,
@@ -309,6 +312,8 @@ fn delete_opencode_removes_database_rows() {
 fn delete_dsh_removes_session_directory() {
     let store_temp = tempfile::tempdir().unwrap();
     let dsh = tempfile::tempdir().unwrap();
+    let dsh_home = tempfile::tempdir().unwrap();
+    let _dsh_home_guard = common::isolate_dsh_home(dsh_home.path());
     let codex = tempfile::tempdir().unwrap();
     let claude = tempfile::tempdir().unwrap();
     let opencode = tempfile::tempdir().unwrap();

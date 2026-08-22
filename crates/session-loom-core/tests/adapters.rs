@@ -5,6 +5,9 @@ use session_loom_core::{
     canonical::{CanonicalSession, Message, Role, SourceTool, ToolCall, CANONICAL_SCHEMA_VERSION},
 };
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn sample_session(source_tool: SourceTool) -> CanonicalSession {
     CanonicalSession {
         schema_version: CANONICAL_SCHEMA_VERSION,
@@ -449,6 +452,7 @@ fn dsh_log_round_trips_messages_and_tool_calls() {
     let root = temp.path().join("sessions");
     let mut session = sample_session(SourceTool::Pi);
     session.cwd = "F:/proj".to_string();
+    let _dsh_home_guard = common::isolate_dsh_home(temp.path());
 
     let result = dsh::write_session_to_root(&session, &root).unwrap();
     assert!(result.session_id.starts_with("session-"));
@@ -548,6 +552,7 @@ fn dsh_skips_subagent_sessions() {
 fn dsh_parse_tolerates_a_torn_final_frame() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("sessions");
+    let _dsh_home_guard = common::isolate_dsh_home(temp.path());
     let mut session = sample_session(SourceTool::Dsh);
     session.messages.push(Message {
         role: Role::User,
@@ -571,6 +576,7 @@ fn dsh_parse_tolerates_a_torn_final_frame() {
 fn dsh_restore_embeds_tool_call_blocks_in_assistant_messages() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("sessions");
+    let _dsh_home_guard = common::isolate_dsh_home(temp.path());
     let result = dsh::write_session_to_root(&sample_session(SourceTool::Dsh), &root).unwrap();
 
     let bytes = std::fs::read(&result.log_file).unwrap();
