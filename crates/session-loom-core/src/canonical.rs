@@ -86,6 +86,12 @@ impl CanonicalSession {
         serde_json::to_string_pretty(self).map_err(|error| error.to_string())
     }
 
+    /// Compact representation used for durable storage. Human-readable
+    /// exports continue to use [`Self::to_json`].
+    pub fn to_storage_json(&self) -> Result<String, String> {
+        serde_json::to_string(self).map_err(|error| error.to_string())
+    }
+
     pub fn from_json(input: &str) -> Result<Self, String> {
         let session = serde_json::from_str::<Self>(input).map_err(|error| error.to_string())?;
         if session.schema_version != CANONICAL_SCHEMA_VERSION {

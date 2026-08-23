@@ -123,7 +123,7 @@ fn run(cli: Cli) -> Result<Option<String>, String> {
         Command::Search { query } => {
             let store = Store::from_environment()?;
             let output = store
-                .search_sessions(&query.join(" "))?
+                .search_hits(&query.join(" "))?
                 .into_iter()
                 .map(|session| {
                     format!(

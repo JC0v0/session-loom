@@ -67,6 +67,31 @@ fn store_writes_reads_lists_searches_and_exports_sessions() {
 }
 
 #[test]
+fn storage_payloads_are_compact_while_exports_remain_pretty() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    store.write_session(&sample()).unwrap();
+
+    let connection = Connection::open(store.db_path()).unwrap();
+    let payload: String = connection
+        .query_row(
+            "SELECT payload FROM sessions WHERE session_id = 's1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!payload.contains('\n'));
+    drop(connection);
+
+    assert!(store.export_session("s1").unwrap().contains('\n'));
+    assert!(store
+        .search_hits(r"C:\proj")
+        .unwrap()
+        .iter()
+        .any(|hit| hit.session_id == "s1"));
+}
+
+#[test]
 fn identical_cross_tool_sessions_share_one_card() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::open(temp.path()).unwrap();
@@ -101,7 +126,7 @@ fn reopening_a_migrated_store_records_the_schema_version() {
 }
 
 #[test]
-fn schema_v2_backfills_content_hashes_and_uses_them_for_grouping() {
+fn schema_v3_backfills_content_hashes_and_compacts_legacy_payloads() {
     let temp = tempfile::tempdir().unwrap();
     let database = temp.path().join("sessions.db");
     let connection = Connection::open(&database).unwrap();
@@ -123,7 +148,7 @@ fn schema_v2_backfills_content_hashes_and_uses_them_for_grouping() {
                 title TEXT NOT NULL,
                 message_count INTEGER NOT NULL
             );
-            PRAGMA user_version = 1;",
+            PRAGMA user_version = 2;",
         )
         .unwrap();
 
@@ -164,6 +189,14 @@ fn schema_v2_backfills_content_hashes_and_uses_them_for_grouping() {
         )
         .unwrap();
     assert_eq!(hashed, 2);
+    let compact_payloads: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE payload NOT LIKE '%' || char(10) || '%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(compact_payloads, 2);
     assert!(connection
         .query_row(
             "SELECT 1 FROM sqlite_master

@@ -10,12 +10,13 @@ use std::{
 use uuid::Uuid;
 
 const SUMMARY_MIGRATION_BATCH_SIZE: i64 = 20;
+const PAYLOAD_MIGRATION_BATCH_SIZE: i64 = 20;
 type ConversationEntry = (String, (Option<i64>, Option<String>));
 
 /// Bumped whenever a new migration is added to [`Store::open`]. Stores whose
 /// `PRAGMA user_version` already equals this value skip the migration pass
 /// entirely, so steady-state opens never re-read the whole table.
-pub const SCHEMA_USER_VERSION: i32 = 2;
+pub const SCHEMA_USER_VERSION: i32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -44,6 +45,14 @@ pub struct SessionCard {
     pub message_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub session_id: String,
+    pub source_tool: String,
+    pub cwd: String,
+    pub updated_at: String,
+}
+
 impl Store {
     pub fn open(root: &Path) -> Result<Self, String> {
         fs::create_dir_all(root).map_err(|error| error.to_string())?;
@@ -60,6 +69,7 @@ impl Store {
             migrate_legacy_json(&mut connection, &store.root)?;
             migrate_conversations(&mut connection)?;
             migrate_summaries(&mut connection)?;
+            migrate_compact_payloads(&mut connection)?;
             set_user_version(&connection, SCHEMA_USER_VERSION)?;
         }
         Ok(store)
@@ -241,15 +251,46 @@ impl Store {
         Ok(sessions)
     }
 
+    /// Searches without deserializing the full payload. This is the path used
+    /// by the CLI, whose output only needs identifying metadata; callers that
+    /// need the complete conversation can still use `search_sessions`.
+    pub fn search_hits(&self, query: &str) -> Result<Vec<SearchHit>, String> {
+        let connection = self.connection()?;
+        let like = format!("%{query}%");
+        let mut statement = connection
+            .prepare(
+                "SELECT session_id, source_tool, cwd, updated_at FROM sessions
+                 WHERE payload LIKE ? OR cwd LIKE ? OR source_tool LIKE ?
+                 ORDER BY updated_at DESC",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(params![like, like, like], |row| {
+                Ok(SearchHit {
+                    session_id: row.get(0)?,
+                    source_tool: row.get(1)?,
+                    cwd: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        rows.map(|row| row.map_err(|error| error.to_string()))
+            .collect()
+    }
+
     pub fn export_session(&self, session_id: &str) -> Result<String, String> {
         let connection = self.connection()?;
-        connection
+        let payload: String = connection
             .query_row(
                 "SELECT payload FROM sessions WHERE session_id = ?",
                 params![session_id],
                 |row| row.get(0),
             )
-            .map_err(|_| format!("session not found: {session_id}"))
+            .map_err(|_| format!("session not found: {session_id}"))?;
+        match CanonicalSession::from_json(&payload) {
+            Ok(session) => session.to_json(),
+            Err(_) => Ok(payload),
+        }
     }
 
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
@@ -820,7 +861,7 @@ fn upsert_session(
     if session.session_id.trim().is_empty() {
         return Err("session id is empty".to_string());
     }
-    let payload = session.to_json()?;
+    let payload = session.to_storage_json()?;
     let content_hash = session_content_hash(session);
     let (title, message_count) = session_summary(session);
     connection
@@ -961,6 +1002,65 @@ fn backfill_summaries(
         }
     }
     transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_compact_payloads(connection: &mut Connection) -> Result<(), String> {
+    let mut cursor: Option<String> = None;
+    loop {
+        let rows = {
+            let (sql, values): (&str, Vec<String>) = match &cursor {
+                Some(cursor) => (
+                    "SELECT session_id, payload FROM sessions
+                     WHERE session_id > ?
+                     ORDER BY session_id LIMIT ?",
+                    vec![cursor.clone(), PAYLOAD_MIGRATION_BATCH_SIZE.to_string()],
+                ),
+                None => (
+                    "SELECT session_id, payload FROM sessions
+                     ORDER BY session_id LIMIT ?",
+                    vec![PAYLOAD_MIGRATION_BATCH_SIZE.to_string()],
+                ),
+            };
+            let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
+            let collected = statement
+                .query_map(params_from_iter(values.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            collected
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let updates = rows
+            .iter()
+            .filter_map(|(session_id, payload)| {
+                let session = CanonicalSession::from_json(payload).ok()?;
+                let compact = session.to_storage_json().ok()?;
+                (compact != *payload).then_some((session_id.clone(), compact))
+            })
+            .collect::<Vec<_>>();
+        if !updates.is_empty() {
+            let transaction = connection
+                .transaction()
+                .map_err(|error| error.to_string())?;
+            {
+                let mut statement = transaction
+                    .prepare("UPDATE sessions SET payload = ? WHERE session_id = ?")
+                    .map_err(|error| error.to_string())?;
+                for (session_id, payload) in updates {
+                    statement
+                        .execute(params![payload, session_id])
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            transaction.commit().map_err(|error| error.to_string())?;
+        }
+        cursor = rows.last().map(|row| row.0.clone());
+    }
 }
 
 fn migrate_legacy_json(connection: &mut Connection, root: &Path) -> Result<(), String> {
