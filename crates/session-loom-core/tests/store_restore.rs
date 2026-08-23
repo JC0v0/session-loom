@@ -101,6 +101,89 @@ fn reopening_a_migrated_store_records_the_schema_version() {
 }
 
 #[test]
+fn schema_v2_backfills_content_hashes_and_uses_them_for_grouping() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("sessions.db");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE sessions (
+                session_id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                source_tool TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                source_path TEXT
+            );
+            CREATE TABLE session_summaries (
+                session_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                message_count INTEGER NOT NULL
+            );
+            PRAGMA user_version = 1;",
+        )
+        .unwrap();
+
+    for (session_id, source_tool) in [
+        ("legacy-codex", SourceTool::Codex),
+        ("legacy-claude", SourceTool::Claude),
+    ] {
+        let mut session = sample();
+        session.session_id = session_id.to_string();
+        session.source_tool = source_tool;
+        connection
+            .execute(
+                "INSERT INTO sessions
+                 (session_id, conversation_id, source_tool, cwd, created_at, updated_at,
+                  schema_version, payload, source_path)
+                 VALUES (?, NULL, ?, ?, ?, ?, ?, ?, NULL)",
+                params![
+                    session.session_id,
+                    session.source_tool.as_str(),
+                    session.cwd,
+                    session.created_at,
+                    session.updated_at,
+                    session.schema_version,
+                    session.to_json().unwrap(),
+                ],
+            )
+            .unwrap();
+    }
+    drop(connection);
+
+    let store = Store::open(temp.path()).unwrap();
+    let connection = Connection::open(&database).unwrap();
+    let hashed: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE content_hash IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(hashed, 2);
+    assert!(connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_sessions_cwd_content_hash'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok());
+    assert!(connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_sessions_tool_source_path'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok());
+    assert_eq!(store.list_cards(ListFilter::default()).unwrap().len(), 1);
+}
+
+#[test]
 fn store_databases_use_wal_journaling_for_concurrent_access() {
     let temp = tempfile::tempdir().unwrap();
     Store::open(temp.path()).unwrap();

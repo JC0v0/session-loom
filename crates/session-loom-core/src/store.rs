@@ -10,11 +10,12 @@ use std::{
 use uuid::Uuid;
 
 const SUMMARY_MIGRATION_BATCH_SIZE: i64 = 20;
+type ConversationEntry = (String, (Option<i64>, Option<String>));
 
 /// Bumped whenever a new migration is added to [`Store::open`]. Stores whose
 /// `PRAGMA user_version` already equals this value skip the migration pass
 /// entirely, so steady-state opens never re-read the whole table.
-pub const SCHEMA_USER_VERSION: i32 = 1;
+pub const SCHEMA_USER_VERSION: i32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -55,6 +56,7 @@ impl Store {
             create_schema(&connection)?;
             migrate_source_path_column(&connection)?;
             migrate_conversation_id_column(&connection)?;
+            migrate_content_hash_column(&mut connection)?;
             migrate_legacy_json(&mut connection, &store.root)?;
             migrate_conversations(&mut connection)?;
             migrate_summaries(&mut connection)?;
@@ -344,7 +346,9 @@ impl Store {
             if needs_backfill {
                 backfills.push((session_id.clone(), title.clone(), message_count));
             }
-            let conversation_id = conversation_id.unwrap_or_else(|| session_id.clone());
+            let conversation_id = conversation_id
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| session_id.clone());
             if let Some(index) = card_indices.get(&conversation_id).copied() {
                 let card = &mut cards[index];
                 if !card.tools.iter().any(|tool| tool == &source_tool) {
@@ -380,25 +384,35 @@ impl Store {
         if !backfills.is_empty() {
             let _ = backfill_summaries(&mut connection, &backfills);
         }
+        let mut tool_stats: HashMap<String, (Vec<String>, i64)> = HashMap::new();
+        let mut stats_statement = connection
+            .prepare(
+                "SELECT COALESCE(NULLIF(conversation_id, ''), session_id) AS conversation_key,
+                        source_tool, COUNT(*)
+                 FROM sessions
+                 GROUP BY conversation_key, source_tool
+                 ORDER BY conversation_key, source_tool",
+            )
+            .map_err(|error| error.to_string())?;
+        let stats_rows = stats_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in stats_rows {
+            let (conversation_id, tool, count) = row.map_err(|error| error.to_string())?;
+            let (tools, instance_count) = tool_stats.entry(conversation_id).or_default();
+            tools.push(tool);
+            *instance_count += count;
+        }
         for card in &mut cards {
-            let mut statement = connection
-                .prepare(
-                    "SELECT source_tool, COUNT(*) FROM sessions
-                     WHERE conversation_id = ? OR (conversation_id IS NULL AND session_id = ?)
-                     GROUP BY source_tool ORDER BY source_tool",
-                )
-                .map_err(|error| error.to_string())?;
-            let rows = statement
-                .query_map(params![card.conversation_id, card.session_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })
-                .map_err(|error| error.to_string())?;
-            card.tools.clear();
-            card.instance_count = 0;
-            for row in rows {
-                let (tool, count) = row.map_err(|error| error.to_string())?;
-                card.tools.push(tool);
-                card.instance_count += count;
+            if let Some((tools, instance_count)) = tool_stats.remove(&card.conversation_id) {
+                card.tools = tools;
+                card.instance_count = instance_count;
             }
         }
         Ok(cards)
@@ -453,6 +467,7 @@ fn create_schema(connection: &Connection) -> Result<(), String> {
                 updated_at TEXT NOT NULL,
                 schema_version INTEGER NOT NULL,
                 payload TEXT NOT NULL,
+                content_hash INTEGER,
                 source_path TEXT
             );
             CREATE TABLE IF NOT EXISTS session_summaries (
@@ -507,6 +522,69 @@ fn migrate_conversation_id_column(connection: &Connection) -> Result<(), String>
     Ok(())
 }
 
+fn migrate_content_hash_column(connection: &mut Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(sessions)")
+        .map_err(|error| error.to_string())?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(statement);
+    if !columns.iter().any(|column| column == "content_hash") {
+        connection
+            .execute_batch("ALTER TABLE sessions ADD COLUMN content_hash INTEGER;")
+            .map_err(|error| error.to_string())?;
+    }
+    connection
+        .execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_cwd_content_hash
+                 ON sessions(cwd, content_hash);
+             CREATE INDEX IF NOT EXISTS idx_sessions_tool_source_path
+                 ON sessions(source_tool, source_path);",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let rows = {
+        let mut statement = connection
+            .prepare(
+                "SELECT session_id, payload FROM sessions
+                 WHERE content_hash IS NULL",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        rows.filter_map(|row| {
+            let (session_id, payload) = row.ok()?;
+            let session = CanonicalSession::from_json(&payload).ok()?;
+            Some((session_id, session_content_hash(&session)))
+        })
+        .collect::<Vec<_>>()
+    };
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    {
+        let mut statement = transaction
+            .prepare("UPDATE sessions SET content_hash = ? WHERE session_id = ?")
+            .map_err(|error| error.to_string())?;
+        for (session_id, content_hash) in rows {
+            statement
+                .execute(params![content_hash, session_id])
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
+
 /// Gives legacy native instances a stable logical conversation id. Exact
 /// content copies are grouped together so existing Codex -> Claude -> Pi
 /// duplicates collapse on the first database open after this migration.
@@ -526,29 +604,26 @@ fn migrate_conversations(connection: &mut Connection) -> Result<(), String> {
         return Ok(());
     }
 
-    // Stream rows one at a time and retain only lightweight identity tuples;
-    // payloads (and their content hashes) are never held for the whole table,
-    // so a large store does not materialize fully in memory.
+    // Stream lightweight identity tuples; content_hash was backfilled by the
+    // preceding migration, so this pass never needs to read or parse payloads
+    // again and never materializes the full table in memory.
     let mut statement = connection
         .prepare(
-            "SELECT session_id, payload, conversation_id FROM sessions
+            "SELECT session_id, content_hash, conversation_id FROM sessions
          ORDER BY updated_at, session_id",
         )
         .map_err(|error| error.to_string())?;
-    let entries: HashMap<String, (Option<u64>, Option<String>)> = statement
+    let entries: Vec<ConversationEntry> = statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
+                row.get::<_, Option<i64>>(1)?,
                 row.get::<_, Option<String>>(2)?,
             ))
         })
         .map_err(|error| error.to_string())?
         .filter_map(|row| {
-            let (session_id, payload, existing) = row.ok()?;
-            let key = CanonicalSession::from_json(&payload)
-                .ok()
-                .and_then(|session| session_content_hash(&session));
+            let (session_id, key, existing) = row.ok()?;
             let existing = existing.filter(|value| !value.trim().is_empty());
             Some((session_id, (key, existing)))
         })
@@ -558,15 +633,15 @@ fn migrate_conversations(connection: &mut Connection) -> Result<(), String> {
     // Assigned rows seed the authoritative key -> id map first-wins in
     // `updated_at` order; unassigned rows then join an existing group, an
     // earlier unassigned sibling's group, or start a fresh conversation.
-    let mut key_to_existing: HashMap<u64, String> = HashMap::new();
-    for (key, existing) in entries.values() {
+    let mut key_to_existing: HashMap<i64, String> = HashMap::new();
+    for (_, (key, existing)) in &entries {
         if let (Some(key), Some(existing)) = (key, existing) {
             key_to_existing
                 .entry(*key)
                 .or_insert_with(|| existing.clone());
         }
     }
-    let mut key_to_group: HashMap<u64, String> = HashMap::new();
+    let mut key_to_group: HashMap<i64, String> = HashMap::new();
     let mut updates: Vec<(String, String)> = vec![];
     for (session_id, (key, existing)) in &entries {
         let assigned = match existing {
@@ -601,14 +676,17 @@ fn migrate_conversations(connection: &mut Connection) -> Result<(), String> {
 }
 
 /// A stable 64-bit fingerprint of everything that makes two sessions the
-/// same logical conversation. Hashing keeps per-row state constant-size
-/// while remaining deterministic across processes and platforms.
-fn session_content_hash(session: &CanonicalSession) -> Option<u64> {
-    use std::hash::Hasher;
+/// same logical conversation. Hashing keeps per-row state constant-size and
+/// the explicit FNV-1a implementation stays deterministic across processes,
+/// platforms, and Rust toolchain versions.
+fn session_content_hash(session: &CanonicalSession) -> i64 {
     let key = session_content_key(session);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hasher.write(key.as_bytes());
-    Some(hasher.finish())
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in key.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3_u64);
+    }
+    hash as i64
 }
 
 fn user_version(connection: &Connection) -> i32 {
@@ -668,25 +746,21 @@ fn resolve_conversation_id(
     // recorded. Empty sessions are excluded because many tools create several
     // indistinguishable empty sessions legitimately.
     if !session.messages.is_empty() {
-        let key = session_content_key(session);
+        let content_hash = session_content_hash(session);
         let mut statement = connection
-            .prepare("SELECT conversation_id, payload FROM sessions WHERE cwd = ?")
+            .prepare(
+                "SELECT conversation_id FROM sessions
+                 WHERE cwd = ? AND content_hash = ?
+                   AND conversation_id IS NOT NULL AND conversation_id <> ''
+                 LIMIT 1",
+            )
             .map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map(params![session.cwd], |row| {
-                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
+        if let Ok(conversation_id) = statement
+            .query_row(params![session.cwd, content_hash], |row| {
+                row.get::<_, String>(0)
             })
-            .map_err(|error| error.to_string())?;
-        for row in rows {
-            let (conversation_id, payload) = row.map_err(|error| error.to_string())?;
-            if let (Some(conversation_id), Ok(existing)) = (
-                conversation_id.filter(|value| !value.trim().is_empty()),
-                CanonicalSession::from_json(&payload),
-            ) {
-                if session_content_key(&existing) == key {
-                    return Ok(conversation_id);
-                }
-            }
+        {
+            return Ok(conversation_id);
         }
     }
 
@@ -747,12 +821,13 @@ fn upsert_session(
         return Err("session id is empty".to_string());
     }
     let payload = session.to_json()?;
+    let content_hash = session_content_hash(session);
     let (title, message_count) = session_summary(session);
     connection
         .execute(
             "INSERT INTO sessions
-               (session_id, conversation_id, source_tool, cwd, created_at, updated_at, schema_version, payload, source_path)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (session_id, conversation_id, source_tool, cwd, created_at, updated_at, schema_version, payload, content_hash, source_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(session_id) DO UPDATE SET
                conversation_id = COALESCE(excluded.conversation_id, sessions.conversation_id),
                source_tool = excluded.source_tool,
@@ -760,8 +835,9 @@ fn upsert_session(
                created_at = excluded.created_at,
                updated_at = excluded.updated_at,
                schema_version = excluded.schema_version,
-               payload = excluded.payload,
-               source_path = COALESCE(excluded.source_path, sessions.source_path)",
+                payload = excluded.payload,
+                content_hash = excluded.content_hash,
+                source_path = COALESCE(excluded.source_path, sessions.source_path)",
             params![
                 session.session_id,
                 conversation_id,
@@ -771,6 +847,7 @@ fn upsert_session(
                 session.updated_at,
                 session.schema_version,
                 payload,
+                content_hash,
                 source_path
             ],
         )
