@@ -135,6 +135,7 @@ ssl trash delete <id>                     彻底删除回收站中的会话
 - 一键恢复到其他工具继续对话
 - 删除、回收站恢复与彻底删除
 - 顶栏守护进程状态与开关
+- 启动时检查 GitHub Releases，支持签名更新与自动重启
 
 ## 架构
 
@@ -148,6 +149,7 @@ session-loom/
 ├── src-tauri/                 # Tauri 2 桌面壳
 │   └── binaries/              # 构建时注入 ssl 边车二进制
 ├── ui/                        # 原生 HTML/CSS/JS 桌面界面
+│   └── emotion-ball/          # 守护进程状态指示器使用的嵌入式表情引擎
 └── docs/plans/                # 设计与规划文档
 ```
 
@@ -191,6 +193,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 npm run dist        # Windows NSIS 安装包
 npm run dist:mac    # macOS .app 与 DMG
 ```
+
+桌面端更新使用 Tauri updater，从 GitHub Releases 获取签名更新包。发布前需要在仓库的 GitHub Actions Secrets 中配置：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：`npx tauri signer generate` 生成的私钥内容
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；未设置密码时留空
+
+私钥只应保存为 GitHub Secret，不要提交到仓库；它必须与 `src-tauri/tauri.conf.json` 中的公钥匹配。更新包签名不匹配时会拒绝安装。
 
 准备正式版本：
 

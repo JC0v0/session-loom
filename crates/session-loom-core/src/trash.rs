@@ -114,7 +114,7 @@ impl Trash {
                 continue;
             };
             let age_ms = now_ms - deleted_at.timestamp_millis();
-            if age_ms > retention_ms {
+            if age_ms >= retention_ms {
                 self.remove(&entry.session.session_id)?;
                 purged += 1;
             }

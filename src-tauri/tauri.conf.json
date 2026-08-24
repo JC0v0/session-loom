@@ -21,11 +21,20 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzRkI1QzkxNDhCRjRGOEYKUldTUFQ3OUlrVno3MDRkbUdRNURqMUt6WU42dDZkVGtHQnhYQVVvZ2FYeVN4clBqNU9WWFkrMGwK",
+      "endpoints": [
+        "https://github.com/JC0v0/session-loom/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],

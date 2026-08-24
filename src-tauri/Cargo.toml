@@ -9,7 +9,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
 serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
 session-loom-core = { path = "../crates/session-loom-core" }
 
 [dev-dependencies]

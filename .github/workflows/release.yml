@@ -77,17 +77,24 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Build NSIS installer
+      - name: Build NSIS installer and updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run dist
 
-      - name: Upload Windows installer
+      - name: Upload Windows installer and updater artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: session-loom-windows
+          name: session-loom-windows-${{ runner.arch }}
           if-no-files-found: error
           path: |
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.nsis.zip
+            target/release/bundle/nsis/*.sig
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.nsis.zip
+            src-tauri/target/release/bundle/nsis/*.sig
 
   build-macos:
     name: Build macOS DMG
@@ -119,19 +126,24 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Build macOS application and DMG
+      - name: Build macOS application, DMG, and updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run dist:mac
 
-      - name: Upload macOS packages
+      - name: Upload macOS packages and updater artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: session-loom-macos
+          name: session-loom-macos-${{ runner.arch }}
           if-no-files-found: error
           path: |
             target/release/bundle/dmg/*.dmg
             target/release/bundle/macos/*.app.tar.gz
+            target/release/bundle/macos/*.app.tar.gz.sig
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
   publish:
     name: Publish GitHub Release
@@ -144,7 +156,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
+
+      - name: Generate updater manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/generate-updater-manifest.cjs
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

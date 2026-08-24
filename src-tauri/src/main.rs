@@ -295,6 +295,8 @@ async fn daemon_toggle() -> DaemonState {
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             install_tray(app)?;
             let _ = ensure_daemon_running();

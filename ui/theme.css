@@ -73,9 +73,18 @@ header {
 }
 button.daemon-pill { height: 25px; }
 .daemon-pill:hover { border-color: var(--border-strong); color: var(--text); }
-.daemon-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #C5C0B4; transition: background var(--ease), box-shadow var(--ease); }
-.daemon-pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(31, 157, 102, .6); }
 .daemon-pill.on { color: var(--text); }
+.daemon-ball {
+  width: 26px; height: 26px; flex: 0 0 26px;
+  overflow: visible; transition: opacity var(--ease), filter var(--ease);
+}
+.daemon-ball svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.daemon-pill.on .daemon-ball { filter: drop-shadow(0 0 4px rgba(31, 157, 102, .34)); }
+.daemon-pill:not(.on) .daemon-ball { opacity: .62; filter: grayscale(.2); }
+.update-pill { color: var(--accent-strong); border-color: rgba(191, 78, 36, .36); }
+.update-pill:hover { color: var(--accent-strong); background: var(--accent-soft); border-color: rgba(191, 78, 36, .55); }
+.update-pill:disabled { opacity: .72; }
+#updatePill[hidden] { display: none; }
 
 main { display: grid; grid-template-columns: 336px 1fr; min-height: 0; }
 
