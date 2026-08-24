@@ -192,6 +192,19 @@ npm run dist        # Windows NSIS 安装包
 npm run dist:mac    # macOS .app 与 DMG
 ```
 
+准备正式版本：
+
+```bash
+npm run release:prepare -- v0.1.2
+# 如需把更新说明写入 annotated tag：
+# npm run release:prepare -- v0.1.2 --notes-file path/to/release-notes.md
+
+git push origin main
+git push origin v0.1.2
+```
+
+该命令要求工作区干净且当前分支为 `main`，会同步 Node、Rust、Tauri 版本，运行格式检查、测试和 Clippy，创建版本提交与 annotated tag，但不会自动推送。
+
 ## 设计原则
 
 - **统一中间格式，而不是两两直连转换**：新增渠道只需增加一对读写适配器。

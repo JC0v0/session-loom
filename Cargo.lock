@@ -2989,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "session-loom"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "session-loom-core",
@@ -3000,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "session-loom-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "rusqlite",
@@ -3011,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "session-loom-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rusqlite",

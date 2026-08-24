@@ -32,6 +32,11 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/sync-release-version.cjs --check
+
       - name: Install JavaScript dependencies
         run: npm ci
 

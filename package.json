@@ -1,6 +1,6 @@
 {
   "name": "session-loom",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Mirror Claude Code, Codex, OpenCode, DeepSeek Harness, and Pi sessions into a durable canonical format and restore them into any supported tool.",
@@ -11,7 +11,8 @@
     "build:cli": "node scripts/prepare-rust-cli.cjs --release",
     "dist": "tauri build",
     "dist:mac": "tauri build --bundles app,dmg",
-    "test": "cargo test --workspace"
+    "test": "cargo test --workspace",
+    "release:prepare": "node scripts/prepare-release.cjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"
