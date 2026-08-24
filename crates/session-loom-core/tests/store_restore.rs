@@ -459,7 +459,9 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
 
     assert!(restore_session(&store, SourceTool::Codex, Some("s1"), &roots).ok);
     assert_eq!(walk_jsonl(codex_temp.path()).len(), 1);
-    assert!(restore_session(&store, SourceTool::Claude, Some("s1"), &roots).ok);
+    let claude_restore = restore_session(&store, SourceTool::Claude, Some("s1"), &roots);
+    assert!(claude_restore.ok);
+    assert!(claude_restore.message.contains("可迁移内容"));
     assert!(claude_temp.path().join("history.jsonl").exists());
 
     opencode::init_database(&opencode_db).unwrap();

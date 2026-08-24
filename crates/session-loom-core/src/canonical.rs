@@ -81,6 +81,36 @@ pub struct CanonicalSession {
     pub messages: Vec<Message>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortabilityReport {
+    pub source_tool: SourceTool,
+    pub target_tool: SourceTool,
+    pub preserved: Vec<String>,
+    pub degraded: Vec<String>,
+}
+
+impl PortabilityReport {
+    pub fn is_degraded(&self) -> bool {
+        !self.degraded.is_empty()
+    }
+
+    pub fn summary(&self) -> String {
+        if self.source_tool == self.target_tool {
+            return String::new();
+        }
+
+        let preserved = self.preserved.join("、");
+        if self.degraded.is_empty() {
+            return format!("可迁移内容：{preserved}");
+        }
+        format!(
+            "可迁移内容：{preserved}；降级项：{}",
+            self.degraded.join("；")
+        )
+    }
+}
+
 impl CanonicalSession {
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|error| error.to_string())
@@ -101,5 +131,44 @@ impl CanonicalSession {
             ));
         }
         Ok(session)
+    }
+
+    pub fn portability_report(&self, target_tool: SourceTool) -> PortabilityReport {
+        let cross_tool = self.source_tool != target_tool;
+        let has_tool_calls = self
+            .messages
+            .iter()
+            .any(|message| !message.tool_calls.is_empty());
+        let mut preserved = vec!["用户和助手文本".to_string(), "工作目录和时间戳".to_string()];
+        let mut degraded = vec![];
+
+        if has_tool_calls {
+            preserved.push("工具名称、参数和已捕获结果".to_string());
+        }
+
+        if cross_tool && has_tool_calls {
+            degraded.push("历史工具调用只作为上下文保留，不会在目标工具中重新执行".to_string());
+        }
+        if cross_tool && self.source_tool == SourceTool::Codex {
+            degraded.push("Codex 的内部推理、压缩、审批和 MCP 运行状态不会跨工具复制".to_string());
+        }
+        if cross_tool && (self.model_provider.is_some() || self.model.is_some()) {
+            match target_tool {
+                SourceTool::Codex => degraded.push(
+                    "目标 Codex 会优先按自己的配置选择 provider，模型也可能被重新选择".to_string(),
+                ),
+                SourceTool::Claude | SourceTool::OpenCode | SourceTool::Dsh => {
+                    degraded.push("目标工具不会继承源工具的模型和 provider 设置".to_string())
+                }
+                SourceTool::Pi => {}
+            }
+        }
+
+        PortabilityReport {
+            source_tool: self.source_tool,
+            target_tool,
+            preserved,
+            degraded,
+        }
     }
 }

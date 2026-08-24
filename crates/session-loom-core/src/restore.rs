@@ -155,9 +155,22 @@ pub fn restore_session(
                     target.as_str(),
                     artifact.session_id,
                     artifact.path.display()
-                ),
+                ) + &format_portability_suffix(&session, target),
             }
         }
         Err(message) => RestoreResult { ok: false, message },
+    }
+}
+
+fn format_portability_suffix(
+    session: &crate::canonical::CanonicalSession,
+    target: SourceTool,
+) -> String {
+    let report = session.portability_report(target);
+    let summary = report.summary();
+    if summary.is_empty() {
+        String::new()
+    } else {
+        format!("；{summary}")
     }
 }

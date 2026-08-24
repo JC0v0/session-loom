@@ -89,6 +89,14 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
                     .to_string();
                 outputs.insert(call_id, json_text(item.get("output")));
             }
+            Some("custom_tool_call_output") => {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                outputs.insert(call_id, json_text(item.get("output")));
+            }
             Some("function_call") => {
                 push_tool_call(
                     &mut messages,
@@ -104,6 +112,26 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
                             .unwrap_or_default()
                             .to_string(),
                         input: json_argument(item.get("arguments")),
+                        output: None,
+                    },
+                );
+            }
+            Some("custom_tool_call") => {
+                push_tool_call(
+                    &mut messages,
+                    ToolCall {
+                        id: item
+                            .get("call_id")
+                            .or_else(|| item.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        name: item
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        input: json_argument(item.get("input").or_else(|| item.get("arguments"))),
                         output: None,
                     },
                 );

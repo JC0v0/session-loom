@@ -87,6 +87,175 @@ fn parses_codex_messages_calls_and_filters_injected_context() {
 }
 
 #[test]
+fn parses_codex_custom_tool_calls_into_portable_calls() {
+    let fixture = [
+        json!({
+            "timestamp":"2026-01-01T00:00:00.000Z",
+            "type":"session_meta",
+            "payload":{
+                "session_id":"s-custom",
+                "cwd":r"C:\proj",
+                "timestamp":"2026-01-01T00:00:00.000Z"
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:01.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"message",
+                "role":"assistant",
+                "content":[{"type":"output_text","text":"I will inspect the project."}]
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:02.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"custom_tool_call",
+                "id":"ctc-1",
+                "call_id":"call-custom-1",
+                "name":"exec",
+                "input":"{\"cmd\":\"pwd\"}",
+                "status":"completed"
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:03.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"custom_tool_call_output",
+                "call_id":"call-custom-1",
+                "output":"C:\\proj"
+            }
+        }),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    let session = codex::parse_session(&fixture).unwrap();
+
+    assert_eq!(session.messages.len(), 1);
+    assert_eq!(session.messages[0].tool_calls.len(), 1);
+    assert_eq!(session.messages[0].tool_calls[0].id, "call-custom-1");
+    assert_eq!(session.messages[0].tool_calls[0].name, "exec");
+    assert_eq!(
+        session.messages[0].tool_calls[0].input,
+        json!({"cmd":"pwd"})
+    );
+    assert_eq!(
+        session.messages[0].tool_calls[0].output.as_deref(),
+        Some("C:\\proj")
+    );
+
+    let report = session.portability_report(SourceTool::Claude);
+    assert!(report
+        .preserved
+        .iter()
+        .any(|item| item.contains("工具名称")));
+    assert!(report.is_degraded());
+}
+
+#[test]
+fn codex_custom_tool_history_can_be_written_to_other_tool_formats() {
+    let fixture = [
+        json!({
+            "timestamp":"2026-01-01T00:00:00.000Z",
+            "type":"session_meta",
+            "payload":{
+                "session_id":"s-custom",
+                "cwd":r"C:\proj",
+                "timestamp":"2026-01-01T00:00:00.000Z"
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:01.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"message",
+                "role":"assistant",
+                "content":[{"type":"output_text","text":"done"}]
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:02.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"custom_tool_call",
+                "id":"ctc-1",
+                "call_id":"call-custom-1",
+                "name":"exec",
+                "input":{"cmd":"pwd"}
+            }
+        }),
+        json!({
+            "timestamp":"2026-01-01T00:00:03.000Z",
+            "type":"response_item",
+            "payload":{
+                "type":"custom_tool_call_output",
+                "call_id":"call-custom-1",
+                "output":"C:\\proj"
+            }
+        }),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+    let session = codex::parse_session(&fixture).unwrap();
+
+    let claude_root = tempfile::tempdir().unwrap();
+    let claude_result = claude::write_session_to_root(&session, claude_root.path()).unwrap();
+    let claude = claude::parse_session_file(&claude_result.session_file).unwrap();
+    assert_eq!(claude.messages[0].tool_calls[0].name, "exec");
+    assert_eq!(claude.messages[0].tool_calls[0].input, json!({"cmd":"pwd"}));
+    assert_eq!(
+        claude.messages[0].tool_calls[0].output.as_deref(),
+        Some("C:\\proj")
+    );
+
+    let pi_root = tempfile::tempdir().unwrap();
+    let pi_result = pi::write_session_to_root(&session, pi_root.path()).unwrap();
+    let pi = pi::parse_session(&std::fs::read_to_string(&pi_result.session_file).unwrap()).unwrap();
+    assert_eq!(pi.messages[0].tool_calls[0].name, "exec");
+    assert_eq!(pi.messages[0].tool_calls[0].input, json!({"cmd":"pwd"}));
+    assert_eq!(
+        pi.messages[0].tool_calls[0].output.as_deref(),
+        Some("C:\\proj")
+    );
+
+    let opencode_root = tempfile::tempdir().unwrap();
+    let opencode_db = opencode_root.path().join("opencode.db");
+    opencode::init_database(&opencode_db).unwrap();
+    opencode::write_session_to_database(&session, &opencode_db).unwrap();
+    let opencode = opencode::parse_sessions(&opencode_db).unwrap();
+    assert_eq!(opencode[0].messages[0].tool_calls[0].name, "exec");
+    assert_eq!(
+        opencode[0].messages[0].tool_calls[0].input,
+        json!({"cmd":"pwd"})
+    );
+    assert_eq!(
+        opencode[0].messages[0].tool_calls[0].output.as_deref(),
+        Some("C:\\proj")
+    );
+
+    let dsh_home = tempfile::tempdir().unwrap();
+    let _dsh_home_guard = common::isolate_dsh_home(dsh_home.path());
+    let dsh_root = tempfile::tempdir().unwrap();
+    let dsh_result = dsh::write_session_to_root(&session, dsh_root.path()).unwrap();
+    let dsh = dsh::parse_session_file(&dsh_result.log_file)
+        .unwrap()
+        .unwrap();
+    assert_eq!(dsh.messages[0].tool_calls[0].name, "exec");
+    assert_eq!(dsh.messages[0].tool_calls[0].input, json!({"cmd":"pwd"}));
+    assert_eq!(
+        dsh.messages[0].tool_calls[0].output.as_deref(),
+        Some("C:\\proj")
+    );
+}
+
+#[test]
 fn writes_codex_interactive_session_records() {
     let output = codex::write_session(&sample_session(SourceTool::Codex)).unwrap();
     let records = output
