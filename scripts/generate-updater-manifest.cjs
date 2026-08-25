@@ -48,6 +48,9 @@ function updaterBundle(path) {
   const name = basename(path);
   if (name.endsWith('.nsis.zip')) return 'nsis';
   if (name.endsWith('.app.tar.gz')) return 'app';
+  // Older Tauri bundlers may emit the signed NSIS installer directly rather
+  // than a `.nsis.zip`. The Windows updater accepts both formats.
+  if (name.endsWith('.exe')) return 'nsis';
   return null;
 }
 
