@@ -162,6 +162,26 @@ pub fn restore_session(
     }
 }
 
+/// Manually synchronizes the selected snapshot to another native tool.
+///
+/// This intentionally creates a new target-tool session and leaves the old
+/// native session untouched, so an active session is never overwritten.
+pub fn sync_session(
+    store: &Store,
+    target: SourceTool,
+    session_id: Option<&str>,
+    roots: &RestoreRoots,
+) -> RestoreResult {
+    let mut result = restore_session(store, target, session_id, roots);
+    if result.ok {
+        result.message = format!(
+            "手动同步完成（已创建目标工具新副本，原会话保留）：{}",
+            result.message
+        );
+    }
+    result
+}
+
 fn format_portability_suffix(
     session: &crate::canonical::CanonicalSession,
     target: SourceTool,

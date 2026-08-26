@@ -387,12 +387,25 @@ body.modal-open { overflow: hidden; }
     get: (id) => invoke('sessions_get', { sessionId: id }),
     remove: (id) => invoke('sessions_delete', { sessionId: id }),
     restore: (id, target) => invoke('sessions_restore', { sessionId: id, target }),
+    sync: (id, target) => invoke('sessions_sync', { sessionId: id, target }),
     trashList: () => invoke('trash_list'),
     trashRestore: (id) => invoke('trash_restore', { sessionId: id }),
     trashRemove: (id) => invoke('trash_delete', { sessionId: id }),
     daemonStatus: () => invoke('daemon_status'),
     daemonToggle: () => invoke('daemon_toggle'),
     openGithub: () => invoke('open_github'),
+  };
+  const TRANSFER_ACTIONS = {
+    restore: {
+      pending: '恢复中…',
+      failure: '恢复失败: ',
+      run: api.restore,
+    },
+    sync: {
+      pending: '同步中…',
+      failure: '同步失败: ',
+      run: api.sync,
+    },
   };
   const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode', dsh: 'DSH', pi: 'Pi' };
   const toolLabel = (tool) => TOOL_LABELS[tool] || tool;
@@ -601,7 +614,7 @@ body.modal-open { overflow: hidden; }
       '  <div class="actions">',
     ].concat(
       otherTools.map((tool, index) =>
-        '    <button class="btn' + (index === 0 ? ' primary' : '') + '" id="btnRestore-' + tool + '">恢复到 ' + toolLabel(tool) + ' 继续对话</button>'
+        '    <button class="btn' + (index === 0 ? ' primary' : '') + '" id="btnRestore-' + tool + '">' + (linkedTools.includes(tool) ? '同步到 ' : '恢复到 ') + toolLabel(tool) + ' 继续对话</button>'
       ),
       [
         '    <button class="btn danger" id="btnDelete">删除会话</button>',
@@ -629,13 +642,8 @@ body.modal-open { overflow: hidden; }
     for (const tool of otherTools) {
       const button = $('btnRestore-' + tool);
       if (!button) continue;
-      if (linkedTools.includes(tool)) {
-        button.disabled = true;
-        button.classList.add('linked');
-        button.textContent = toolLabel(tool) + ' 已关联';
-      } else {
-        button.addEventListener('click', (e) => doRestore(session.sessionId, tool, e.target));
-      }
+      const action = linkedTools.includes(tool) ? 'sync' : 'restore';
+      button.addEventListener('click', (e) => doTransfer(session.sessionId, tool, e.target, action));
     }
     $('btnDelete').addEventListener('click', async (event) => {
       const trigger = event.currentTarget;
@@ -686,12 +694,13 @@ body.modal-open { overflow: hidden; }
     }
   }
 
-  async function doRestore(sessionId, target, btn) {
+  async function doTransfer(sessionId, target, btn, action) {
+    const transfer = TRANSFER_ACTIONS[action];
     btn.disabled = true;
     const old = btn.textContent;
-    btn.textContent = '恢复中…';
+    btn.textContent = transfer.pending;
     try {
-      const res = await api.restore(sessionId, target);
+      const res = await transfer.run(sessionId, target);
       toast(res.message, res.ok);
       if (res.ok) {
         const conversationId = state.selectedConversationId;
@@ -702,7 +711,7 @@ body.modal-open { overflow: hidden; }
         }
       }
     } catch (e) {
-      toast('恢复失败: ' + (e.message || e), false);
+      toast(transfer.failure + (e.message || e), false);
     } finally {
       btn.disabled = false;
       btn.textContent = old;

@@ -5,7 +5,7 @@ use session_loom_core::{
     daemon::{self, DaemonState},
     delete::{self, DeleteResult},
     paths,
-    restore::{restore_session, RestoreResult, RestoreRoots},
+    restore::{restore_session, sync_session, RestoreResult, RestoreRoots},
     store::{ListFilter, SessionCard, Store},
     trash::{restore_from_trash, Trash, TrashEntry},
 };
@@ -94,6 +94,27 @@ fn store() -> Result<Store, String> {
     Store::from_environment()
 }
 
+fn run_session_transfer(
+    session_id: String,
+    target: String,
+    transfer: fn(&Store, SourceTool, Option<&str>, &RestoreRoots) -> RestoreResult,
+) -> RestoreResult {
+    let target = match SourceTool::from_str(&target) {
+        Ok(target) => target,
+        Err(message) => return RestoreResult { ok: false, message },
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(message) => return RestoreResult { ok: false, message },
+    };
+    transfer(
+        &store,
+        target,
+        Some(&session_id),
+        &RestoreRoots::from_environment(),
+    )
+}
+
 #[tauri::command]
 async fn sessions_list(filter: Option<ListFilter>) -> Result<Vec<SessionCard>, String> {
     tauri::async_runtime::spawn_blocking(move || store()?.list_cards(filter.unwrap_or_default()))
@@ -153,25 +174,24 @@ fn trash_delete(session_id: String) -> Result<(), String> {
 #[tauri::command]
 async fn sessions_restore(session_id: String, target: String) -> RestoreResult {
     tauri::async_runtime::spawn_blocking(move || {
-        let target = match SourceTool::from_str(&target) {
-            Ok(target) => target,
-            Err(message) => return RestoreResult { ok: false, message },
-        };
-        let store = match store() {
-            Ok(store) => store,
-            Err(message) => return RestoreResult { ok: false, message },
-        };
-        restore_session(
-            &store,
-            target,
-            Some(&session_id),
-            &RestoreRoots::from_environment(),
-        )
+        run_session_transfer(session_id, target, restore_session)
     })
     .await
     .unwrap_or_else(|error| RestoreResult {
         ok: false,
         message: format!("session restore task failed: {error}"),
+    })
+}
+
+#[tauri::command]
+async fn sessions_sync(session_id: String, target: String) -> RestoreResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_session_transfer(session_id, target, sync_session)
+    })
+    .await
+    .unwrap_or_else(|error| RestoreResult {
+        ok: false,
+        message: format!("session sync task failed: {error}"),
     })
 }
 
@@ -321,6 +341,7 @@ fn main() {
             sessions_get,
             sessions_delete,
             sessions_restore,
+            sessions_sync,
             trash_list,
             trash_restore,
             trash_delete,

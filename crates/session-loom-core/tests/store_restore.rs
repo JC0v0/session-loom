@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 use session_loom_core::{
     adapters::{dsh, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
-    restore::{restore_session, RestoreRoots},
+    restore::{restore_session, sync_session, RestoreRoots},
     store::{ListFilter, Store},
 };
 use std::{fs, path::Path};
@@ -500,6 +500,54 @@ fn restores_sessions_to_codex_claude_opencode_dsh_and_pi() {
     assert_eq!(cards[0].instance_count, 6);
 
     assert!(!restore_session(&store, SourceTool::Codex, Some("missing"), &roots).ok);
+}
+
+#[test]
+fn manually_syncs_the_latest_snapshot_to_an_existing_pi_instance() {
+    let store_temp = tempfile::tempdir().unwrap();
+    let codex_temp = tempfile::tempdir().unwrap();
+    let codex_home_temp = tempfile::tempdir().unwrap();
+    let pi_temp = tempfile::tempdir().unwrap();
+    let store = Store::open(store_temp.path()).unwrap();
+    store.write_session(&sample()).unwrap();
+    let roots = RestoreRoots {
+        codex: codex_temp.path().to_path_buf(),
+        codex_home: codex_home_temp.path().to_path_buf(),
+        claude: store_temp.path().join("claude"),
+        opencode: store_temp.path().join("opencode.db"),
+        dsh: store_temp.path().join("dsh"),
+        pi: pi_temp.path().to_path_buf(),
+    };
+
+    assert!(restore_session(&store, SourceTool::Pi, Some("s1"), &roots).ok);
+
+    let mut latest = sample();
+    latest.updated_at = "2026-01-01T00:00:02.000Z".to_string();
+    latest.messages.push(Message {
+        role: Role::Assistant,
+        text: "Codex 后续回复".to_string(),
+        tool_calls: vec![],
+    });
+    store.write_session(&latest).unwrap();
+
+    let result = sync_session(&store, SourceTool::Pi, Some("s1"), &roots);
+    assert!(result.ok, "{}", result.message);
+    assert!(result.message.contains("手动同步完成"));
+
+    let pi_sessions = walk_jsonl(pi_temp.path())
+        .into_iter()
+        .map(|path| pi::parse_session(&fs::read_to_string(path).unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(pi_sessions.len(), 2);
+    assert!(pi_sessions.iter().any(|session| session
+        .messages
+        .iter()
+        .any(|message| message.text == "Codex 后续回复")));
+
+    let cards = store.list_cards(ListFilter::default()).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].tools, vec!["codex", "pi"]);
+    assert_eq!(cards[0].instance_count, 3);
 }
 
 fn walk_jsonl(directory: &Path) -> Vec<std::path::PathBuf> {
