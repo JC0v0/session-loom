@@ -464,6 +464,7 @@ body.modal-open { overflow: hidden; }
     trashRemove: (id) => invoke('trash_delete', { sessionId: id }),
     daemonStatus: () => invoke('daemon_status'),
     daemonToggle: () => invoke('daemon_toggle'),
+    daemonStop: () => invoke('daemon_stop'),
     openGithub: () => invoke('open_github'),
   };
   const TRANSFER_ACTIONS = {
@@ -1239,8 +1240,9 @@ body.modal-open { overflow: hidden; }
       $('updatePill').title = update.body ? '查看更新说明并安装' : '下载并安装 v' + version;
       $('updatePill').hidden = false;
       toast('发现 Session-Loom 新版本 v' + version + '，点击右上角更新');
-    } catch {
+    } catch (error) {
       // Update checks are optional; an unavailable endpoint must not affect the app.
+      console.warn('Update check failed:', error);
     } finally {
       updateCheckInFlight = false;
     }
@@ -1260,7 +1262,7 @@ body.modal-open { overflow: hidden; }
     let downloaded = 0;
     let contentLength = 0;
     try {
-      await pendingUpdate.downloadAndInstall((event) => {
+      await pendingUpdate.download((event) => {
         if (event.event === 'Started') {
           contentLength = event.data?.contentLength || 0;
         } else if (event.event === 'Progress') {
@@ -1269,6 +1271,10 @@ body.modal-open { overflow: hidden; }
           button.textContent = percent ? '更新 · ' + percent + '%' : '正在下载…';
         }
       });
+      const daemonState = await api.daemonStop();
+      if (daemonState.running) throw new Error('无法停止守护进程，请手动停止后重试');
+      button.textContent = '正在安装…';
+      await pendingUpdate.install();
       button.textContent = '正在重启…';
       if (!processApi?.relaunch) throw new Error('重启 API 不可用');
       await processApi.relaunch();

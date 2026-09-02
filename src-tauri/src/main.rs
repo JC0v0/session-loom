@@ -313,6 +313,16 @@ async fn daemon_toggle() -> DaemonState {
     })
 }
 
+#[tauri::command]
+async fn daemon_stop() -> DaemonState {
+    tauri::async_runtime::spawn_blocking(|| daemon::stop_daemon(&paths::store_root()))
+        .await
+        .unwrap_or(DaemonState {
+            running: false,
+            pid: None,
+        })
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
@@ -347,6 +357,7 @@ fn main() {
             trash_delete,
             daemon_status,
             daemon_toggle,
+            daemon_stop,
             open_github
         ])
         .build(tauri::generate_context!())
