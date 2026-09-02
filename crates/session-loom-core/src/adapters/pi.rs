@@ -156,6 +156,7 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         updated_at,
         model_provider,
         model,
+        title: None,
         messages,
     })
 }

@@ -77,6 +77,10 @@ pub fn parse_sessions(database: &Path) -> Result<Vec<CanonicalSession>, String> 
             )),
             model_provider: None,
             model: None,
+            title: session
+                .title
+                .clone()
+                .filter(|title| !title.trim().is_empty()),
             messages,
         });
     }
@@ -263,6 +267,7 @@ pub fn write_session_to_database(
 #[derive(Debug)]
 struct RawSession {
     directory: String,
+    title: Option<String>,
     created_ms: i64,
     updated_ms: i64,
     messages: Vec<RawMessage>,
@@ -277,12 +282,24 @@ struct RawMessage {
 }
 
 fn read_sessions(connection: &Connection) -> Result<HashMap<String, RawSession>, String> {
-    let mut statement = connection
-        .prepare(
-            "SELECT id, directory, time_created, time_updated FROM session
-             ORDER BY time_updated DESC",
-        )
-        .map_err(|error| error.to_string())?;
+    // Newer OpenCode schemas maintain an LLM-generated session title; older
+    // databases simply do not have the column.
+    let has_title_column = connection
+        .prepare("PRAGMA table_info(session)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map(|rows| rows.filter_map(Result::ok).any(|name| name == "title"))
+        })
+        .unwrap_or(false);
+    let sql = if has_title_column {
+        "SELECT id, directory, time_created, time_updated, title FROM session
+         ORDER BY time_updated DESC"
+    } else {
+        "SELECT id, directory, time_created, time_updated, NULL FROM session
+         ORDER BY time_updated DESC"
+    };
+    let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -290,12 +307,14 @@ fn read_sessions(connection: &Connection) -> Result<HashMap<String, RawSession>,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(|error| error.to_string())?;
     let mut sessions = HashMap::new();
     for row in rows {
-        let (id, directory, created_ms, updated_ms) = row.map_err(|error| error.to_string())?;
+        let (id, directory, created_ms, updated_ms, title) =
+            row.map_err(|error| error.to_string())?;
         if id.trim().is_empty() {
             continue;
         }
@@ -303,6 +322,7 @@ fn read_sessions(connection: &Connection) -> Result<HashMap<String, RawSession>,
             id,
             RawSession {
                 directory,
+                title,
                 created_ms,
                 updated_ms,
                 messages: vec![],

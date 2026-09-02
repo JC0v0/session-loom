@@ -22,6 +22,7 @@ fn sample(session_id: &str, source_tool: SourceTool) -> CanonicalSession {
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
         model_provider: None,
         model: None,
+        title: None,
         messages: vec![Message {
             role: Role::User,
             text: "hello trash".to_string(),
