@@ -1,6 +1,6 @@
 {
   "name": "session-loom",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Mirror Claude Code, Codex, OpenCode, DeepSeek Harness, and Pi sessions into a durable canonical format and restore them into any supported tool.",
