@@ -178,8 +178,40 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         updated_at,
         model_provider,
         model,
+        title: None,
         messages,
     })
+}
+
+/// Attaches the thread's current title from Codex's session index. Codex
+/// rewrites `session_index.jsonl` whenever a thread is renamed, so the watcher
+/// refreshes titles together with content changes. Missing files or entries
+/// keep the title unset and the mirror falls back to the first user message.
+pub fn attach_index_title(session: &mut CanonicalSession, codex_home: &Path) {
+    if session.title.is_some() {
+        return;
+    }
+    let index = codex_home.join("session_index.jsonl");
+    let Ok(payload) = fs::read_to_string(&index) else {
+        return;
+    };
+    let mut title = String::new();
+    for line in payload.lines().filter(|line| !line.trim().is_empty()) {
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if record.get("id").and_then(Value::as_str) != Some(session.session_id.as_str()) {
+            continue;
+        }
+        if let Some(name) = record.get("thread_name").and_then(Value::as_str) {
+            if !name.trim().is_empty() {
+                title = name.to_string();
+            }
+        }
+    }
+    if !title.is_empty() {
+        session.title = Some(title);
+    }
 }
 
 pub fn configured_model_provider() -> Option<String> {

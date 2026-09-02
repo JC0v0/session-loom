@@ -17,6 +17,7 @@ fn seed_store(root: &std::path::Path) {
             updated_at: "2026-01-01T00:00:01.000Z".to_string(),
             model_provider: Some("custom".to_string()),
             model: Some("deepseek-v4-pro".to_string()),
+            title: None,
             messages: vec![Message {
                 role: Role::User,
                 text: "hello rust cli".to_string(),

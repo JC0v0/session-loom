@@ -145,7 +145,11 @@ fn mirror_file(
         SourceTool::Codex | SourceTool::Claude => {
             let payload = fs::read_to_string(file).map_err(|error| error.to_string())?;
             let session = match source_tool {
-                SourceTool::Codex => codex::parse_session(&payload)?,
+                SourceTool::Codex => {
+                    let mut session = codex::parse_session(&payload)?;
+                    codex::attach_index_title(&mut session, &crate::paths::codex_home());
+                    session
+                }
                 SourceTool::Claude => claude::parse_session_file(file)?,
                 SourceTool::OpenCode | SourceTool::Dsh | SourceTool::Pi => unreachable!(),
             };

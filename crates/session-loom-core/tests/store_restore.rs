@@ -20,6 +20,7 @@ fn sample() -> CanonicalSession {
         updated_at: "2026-01-01T00:00:00.000Z".to_string(),
         model_provider: Some("custom".to_string()),
         model: Some("deepseek-v4-pro".to_string()),
+        title: None,
         messages: vec![Message {
             role: Role::User,
             text: "帮我修一下这个 bug".to_string(),
@@ -111,6 +112,19 @@ fn identical_cross_tool_sessions_share_one_card() {
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].tools, vec!["claude", "codex", "pi"]);
     assert_eq!(cards[0].instance_count, 3);
+}
+
+#[test]
+fn card_title_prefers_the_source_tool_title() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let mut session = sample();
+    session.title = Some("源工具生成的标题".to_string());
+    store.write_session(&session).unwrap();
+
+    let cards = store.list_cards(ListFilter::default()).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].title, "源工具生成的标题");
 }
 
 #[test]

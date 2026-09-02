@@ -49,6 +49,7 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
     let mut cwd = String::new();
     let mut created_at = String::new();
     let mut updated_at = String::new();
+    let mut summary_title = String::new();
 
     for line in jsonl.lines().filter(|line| !line.trim().is_empty()) {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -68,6 +69,11 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         }
 
         let record_type = record.get("type").and_then(Value::as_str);
+        if record_type == Some("summary") {
+            if let Some(value) = record.get("summary").and_then(Value::as_str) {
+                summary_title = value.to_string();
+            }
+        }
         if !matches!(record_type, Some("user" | "assistant")) {
             continue;
         }
@@ -142,6 +148,11 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         updated_at,
         model_provider: None,
         model: None,
+        title: if summary_title.is_empty() {
+            None
+        } else {
+            Some(summary_title)
+        },
         messages,
     })
 }

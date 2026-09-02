@@ -18,6 +18,7 @@ fn sample_session(source_tool: SourceTool) -> CanonicalSession {
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
         model_provider: Some("custom".to_string()),
         model: Some("deepseek-v4-pro".to_string()),
+        title: None,
         messages: vec![
             Message {
                 role: Role::User,
@@ -40,9 +41,56 @@ fn sample_session(source_tool: SourceTool) -> CanonicalSession {
 
 #[test]
 fn canonical_json_round_trips_every_field() {
-    let session = sample_session(SourceTool::Codex);
+    let session = CanonicalSession {
+        title: Some("镜像标题".to_string()),
+        ..sample_session(SourceTool::Codex)
+    };
     let encoded = session.to_json().unwrap();
     assert_eq!(CanonicalSession::from_json(&encoded).unwrap(), session);
+}
+
+#[test]
+fn parses_claude_summary_as_source_title() {
+    let fixture = [
+        json!({"type":"summary","summary":"旧的摘要标题","leafUuid":"u1"}),
+        json!({"type":"summary","summary":"最新的摘要标题","leafUuid":"u2"}),
+        json!({"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"s3","cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z"}),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    let session = claude::parse_session(&fixture).unwrap();
+
+    assert_eq!(session.title.as_deref(), Some("最新的摘要标题"));
+    assert_eq!(session.messages.len(), 1);
+}
+
+#[test]
+fn attaches_codex_index_title_for_renamed_threads() {
+    let home = tempfile::tempdir().unwrap();
+    let session_id = "01a06014-a7bf-7153-b2d9-f351af4ceb51";
+    std::fs::write(
+        home.path().join("session_index.jsonl"),
+        format!(
+            "{{\"id\":\"{session_id}\",\"thread_name\":\"旧名字\"}}\n{{\"id\":\"{session_id}\",\"thread_name\":\"改名后的标题\"}}\n"
+        ),
+    )
+    .unwrap();
+    let fixture = [
+        json!({"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"session_id":"01a06014-a7bf-7153-b2d9-f351af4ceb51","cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z"}}),
+        json!({"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"你好"}]}}),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    let mut session = codex::parse_session(&fixture).unwrap();
+    codex::attach_index_title(&mut session, home.path());
+
+    assert_eq!(session.title.as_deref(), Some("改名后的标题"));
 }
 
 #[test]

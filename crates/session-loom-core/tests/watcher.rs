@@ -208,6 +208,7 @@ fn watcher_mirrors_opencode_database_sessions() {
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
         model_provider: None,
         model: None,
+        title: None,
         messages: vec![Message {
             role: Role::User,
             text: "hello".to_string(),
@@ -339,6 +340,7 @@ fn watcher_mirrors_dsh_session_logs() {
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
         model_provider: None,
         model: None,
+        title: None,
         messages: vec![Message {
             role: Role::User,
             text: "zstd hello".to_string(),
@@ -372,6 +374,7 @@ fn watcher_mirrors_pi_session_files() {
         updated_at: "2026-01-01T00:00:01.000Z".to_string(),
         model_provider: Some("custom".to_string()),
         model: Some("model".to_string()),
+        title: None,
         messages: vec![Message {
             role: Role::User,
             text: "hello pi".to_string(),

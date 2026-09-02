@@ -30,6 +30,17 @@ pub struct ListFilter {
     pub query: Option<String>,
 }
 
+/// One mirrored native session (a fork) that belongs to a logical
+/// conversation. Each entry is independently viewable, restorable, and
+/// deletable because every native instance keeps its own session id.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInstance {
+    pub session_id: String,
+    pub source_tool: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCard {
@@ -37,6 +48,7 @@ pub struct SessionCard {
     pub session_id: String,
     pub source_tool: String,
     pub tools: Vec<String>,
+    pub instances: Vec<SessionInstance>,
     pub instance_count: i64,
     pub cwd: String,
     pub created_at: String,
@@ -412,6 +424,7 @@ impl Store {
                     session_id,
                     source_tool: source_tool.clone(),
                     tools: vec![source_tool],
+                    instances: vec![],
                     instance_count: 1,
                     cwd,
                     created_at,
@@ -455,6 +468,43 @@ impl Store {
                 card.tools = tools;
                 card.instance_count = instance_count;
             }
+        }
+        let mut instance_map: HashMap<String, Vec<SessionInstance>> = HashMap::new();
+        let mut instance_statement = connection
+            .prepare(
+                "SELECT COALESCE(NULLIF(conversation_id, ''), session_id) AS conversation_key,
+                        session_id, source_tool, updated_at
+                 FROM sessions
+                 ORDER BY conversation_key, updated_at DESC",
+            )
+            .map_err(|error| error.to_string())?;
+        let instance_rows = instance_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in instance_rows {
+            let (conversation_id, session_id, source_tool, updated_at) =
+                row.map_err(|error| error.to_string())?;
+            instance_map
+                .entry(conversation_id)
+                .or_default()
+                .push(SessionInstance {
+                    session_id,
+                    source_tool,
+                    updated_at,
+                });
+        }
+        drop(instance_statement);
+        for card in &mut cards {
+            card.instances = instance_map
+                .remove(&card.conversation_id)
+                .unwrap_or_default();
         }
         Ok(cards)
     }
@@ -907,21 +957,32 @@ fn upsert_session(
 }
 
 fn session_summary(session: &CanonicalSession) -> (String, i64) {
+    // The source tool's own title wins when it maintains one, so watcher
+    // refreshes pick up title changes together with the content. Otherwise we
+    // fall back to the first user message.
     let title = session
-        .messages
-        .iter()
-        .find(|message| {
-            message.role == crate::canonical::Role::User && !message.text.trim().is_empty()
-        })
-        .map(|message| {
-            message
-                .text
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| "(空会话)".to_string());
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_else(|| {
+            session
+                .messages
+                .iter()
+                .find(|message| {
+                    message.role == crate::canonical::Role::User && !message.text.trim().is_empty()
+                })
+                .map(|message| {
+                    message
+                        .text
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| "(空会话)".to_string())
+        });
     let title = if title.chars().count() > 80 {
         format!("{}…", title.chars().take(80).collect::<String>())
     } else {

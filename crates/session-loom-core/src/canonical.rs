@@ -78,6 +78,11 @@ pub struct CanonicalSession {
     pub model_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Source tool's own session title when the tool maintains one (for
+    /// example Claude's summary lines or OpenCode's generated title). The
+    /// mirror refreshes it together with the content on every re-mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub messages: Vec<Message>,
 }
 
