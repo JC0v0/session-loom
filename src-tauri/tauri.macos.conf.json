@@ -6,7 +6,8 @@
     "icon": ["icons/icon.icns"],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "signingIdentity": "-"
+      "signingIdentity": "Developer ID Application: Zi Zhen Jingq (CTWQUJJNK5)",
+      "hardenedRuntime": true
     }
   }
 }

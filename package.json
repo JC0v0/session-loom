@@ -10,7 +10,8 @@
     "dev:cli": "node scripts/prepare-rust-cli.cjs",
     "build:cli": "node scripts/prepare-rust-cli.cjs --release",
     "dist": "tauri build",
-    "dist:mac": "tauri build --bundles app,dmg",
+    "dist:mac": "tauri build --bundles app,dmg && node scripts/notarize-dmg.cjs",
+    "dist:mac:notarize": "node scripts/notarize-dmg.cjs",
     "test": "cargo test --workspace",
     "release:prepare": "node scripts/prepare-release.cjs"
   },

@@ -1,4 +1,4 @@
-const { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync } = require('node:fs');
+const { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -23,3 +23,20 @@ for (const stale of ['ssl', 'ssl.exe']) {
 }
 copyFileSync(source, destination);
 if (process.platform !== 'win32') chmodSync(destination, 0o755);
+
+if (process.platform === 'darwin' && release) {
+  const macosConfig = JSON.parse(
+    readFileSync(join(projectRoot, 'src-tauri', 'tauri.macos.conf.json'), 'utf8'),
+  );
+  const identity = process.env.APPLE_SIGNING_IDENTITY || macosConfig?.bundle?.macOS?.signingIdentity;
+
+  if (identity && identity !== '-') {
+    const signing = spawnSync(
+      'codesign',
+      ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, destination],
+      { stdio: 'inherit' },
+    );
+    if (signing.error) throw signing.error;
+    if (signing.status !== 0) process.exit(signing.status ?? 1);
+  }
+}
