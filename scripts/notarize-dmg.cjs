@@ -40,7 +40,12 @@ if (process.platform !== 'darwin') {
 
 const args = notarizationArgs();
 if (!args) {
-  console.warn('Skipping DMG notarization: no Apple notarization credentials found.');
+  const message = 'DMG notarization credentials are missing.';
+  if (process.env.CI) {
+    console.error(message);
+    process.exit(1);
+  }
+  console.warn(`${message} Skipping notarization for this local build.`);
   process.exit(0);
 }
 
@@ -63,4 +68,3 @@ console.log(`Notarizing ${dmgPath}`);
 run('xcrun', ['notarytool', 'submit', dmgPath, ...args, '--wait']);
 console.log(`Stapling ${dmgPath}`);
 run('xcrun', ['stapler', 'staple', dmgPath]);
-run('xcrun', ['stapler', 'validate', dmgPath]);

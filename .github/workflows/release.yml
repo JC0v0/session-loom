@@ -100,8 +100,6 @@ jobs:
     name: Build macOS DMG
     needs: verify
     runs-on: macos-latest
-    env:
-      APPLE_SIGNING_IDENTITY: '-'
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -126,11 +124,89 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Check release security
+        run: node --test scripts/release-security.test.cjs
+
+      - name: Validate macOS release secrets
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required macOS release secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Import Apple Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/session-loom-signing.keychain-db"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          if [[ -z "$IDENTITY" ]]; then
+            echo 'No valid Developer ID Application identity was imported.' >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
       - name: Build macOS application, DMG, and updater artifacts
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run dist:mac
+
+      - name: Verify macOS signature, notarization, and Gatekeeper acceptance
+        run: |
+          APP_PATH='target/release/bundle/macos/Session-Loom.app'
+          shopt -s nullglob
+          DMG_FILES=(target/release/bundle/dmg/Session-Loom_*.dmg)
+          if [[ ! -d "$APP_PATH" || ${#DMG_FILES[@]} -ne 1 ]]; then
+            echo "Expected one app and one DMG, found ${#DMG_FILES[@]} DMG files." >&2
+            exit 1
+          fi
+          DMG_PATH="${DMG_FILES[0]}"
+
+          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+          codesign -dvv "$APP_PATH" 2>&1 | grep -F 'Authority=Developer ID Application:'
+          xcrun stapler validate "$APP_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security default-keychain -s login.keychain-db || true
+          security list-keychain -d user -s login.keychain-db || true
+          security delete-keychain "$RUNNER_TEMP/session-loom-signing.keychain-db" || true
 
       - name: Upload macOS packages and updater artifacts
         uses: actions/upload-artifact@v4
@@ -141,9 +217,6 @@ jobs:
             target/release/bundle/dmg/*.dmg
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
   publish:
     name: Publish GitHub Release

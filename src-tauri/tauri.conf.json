@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGNTI1NjE5NjlCODlGMApSV1R3aVp1V1lTWDFBa0pFSGVyYUlRMTlhNm9PVUxDRXl3MVg1NGs3Vmc5VkdBVHJybTBKcHlDbQo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCN0M3RTY2Nzc0NkE2MTEKUldRUnBrWjNabjU4RzhRaUFsUkNNY2dhT2JKNlJBVG9HN1NwVEcyN3hWMnE0emlsWm9rN1U0amYK",
       "endpoints": [
         "https://github.com/JC0v0/session-loom/releases/latest/download/latest.json"
       ]

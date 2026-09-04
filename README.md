@@ -198,8 +198,14 @@ npm run dist:mac    # macOS .app 与 DMG
 
 - `TAURI_SIGNING_PRIVATE_KEY`：`npx tauri signer generate` 生成的私钥内容
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；未设置密码时留空
+- `APPLE_CERTIFICATE`：Developer ID Application 证书导出的 `.p12` 文件，经 base64 编码后的内容
+- `APPLE_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码
+- `KEYCHAIN_PASSWORD`：GitHub Actions 临时钥匙串使用的随机密码
+- `APPLE_ID`：Apple Developer 账号邮箱
+- `APPLE_PASSWORD`：该 Apple ID 的 App 专用密码，不是登录密码
+- `APPLE_TEAM_ID`：Apple Developer Team ID
 
-私钥只应保存为 GitHub Secret，不要提交到仓库；它必须与 `src-tauri/tauri.conf.json` 中的公钥匹配。更新包签名不匹配时会拒绝安装。
+证书、密码和私钥只应保存为 GitHub Secret，不要提交到仓库。Tauri 更新私钥必须与 `src-tauri/tauri.conf.json` 中的公钥匹配，否则更新包会被拒绝。macOS 发布任务会导入 Developer ID 证书，分别公证应用和 DMG，并在上传前检查签名、公证票据和 Gatekeeper 结果；缺少任意凭据时发布会直接失败。
 
 准备正式版本：
 
