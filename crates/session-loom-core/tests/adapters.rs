@@ -68,6 +68,83 @@ fn parses_claude_summary_as_source_title() {
 }
 
 #[test]
+fn claude_title_records_win_over_compaction_summaries() {
+    let fixture = [
+        json!({"type":"summary","summary":"压缩摘要","leafUuid":"u1"}),
+        json!({"type":"ai-title","aiTitle":"自动生成的标题","sessionId":"s3"}),
+        json!({"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"s3","cwd":r"C:\proj","timestamp":"2026-01-01T00:00:00.000Z"}),
+        json!({"type":"custom-title","customTitle":"用户改过的名字","sessionId":"s3"}),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    assert_eq!(
+        claude::parse_session(&fixture).unwrap().title.as_deref(),
+        Some("用户改过的名字")
+    );
+    let without_custom = fixture
+        .lines()
+        .filter(|line| !line.contains("custom-title"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        claude::parse_session(&without_custom)
+            .unwrap()
+            .title
+            .as_deref(),
+        Some("自动生成的标题")
+    );
+}
+
+#[test]
+fn claude_write_embeds_the_session_title_as_a_custom_title_record() {
+    let temp = tempfile::tempdir().unwrap();
+    let session = CanonicalSession {
+        title: Some("复刻后的会话名".to_string()),
+        ..sample_session(SourceTool::Codex)
+    };
+    let written = claude::write_session_to_root_with_id(&session, temp.path(), "s9").unwrap();
+    let parsed = claude::parse_session_file(&written.session_file).unwrap();
+    assert_eq!(parsed.title.as_deref(), Some("复刻后的会话名"));
+    assert!(parsed
+        .messages
+        .iter()
+        .any(|message| message.text == "hello"));
+}
+
+#[test]
+fn codex_index_registration_keeps_and_renames_the_session_title() {
+    let home = tempfile::tempdir().unwrap();
+    let session = CanonicalSession {
+        title: Some("登录修复与回归测试".to_string()),
+        ..sample_session(SourceTool::Claude)
+    };
+    codex::register_session_index(&session, "s1", home.path()).unwrap();
+    let mut renamed = session.clone();
+    renamed.title = Some("改名后的标题".to_string());
+    codex::register_session_index(&renamed, "s1", home.path()).unwrap();
+    // Re-registering the same title must not append another record.
+    codex::register_session_index(&renamed, "s1", home.path()).unwrap();
+
+    let mut parsed = codex::parse_session(&codex::write_session(&session).unwrap()).unwrap();
+    codex::attach_index_title(&mut parsed, home.path());
+    assert_eq!(parsed.title.as_deref(), Some("改名后的标题"));
+    let index = std::fs::read_to_string(home.path().join("session_index.jsonl")).unwrap();
+    assert_eq!(index.lines().count(), 2, "{index}");
+}
+
+#[test]
+fn codex_registration_falls_back_to_the_first_message_without_a_title() {
+    let home = tempfile::tempdir().unwrap();
+    codex::register_session_index(&sample_session(SourceTool::Claude), "s1", home.path()).unwrap();
+    let index = std::fs::read_to_string(home.path().join("session_index.jsonl")).unwrap();
+    let record: Value = serde_json::from_str(index.lines().next().unwrap()).unwrap();
+    assert_eq!(record["thread_name"], "hello");
+}
+
+#[test]
 fn attaches_codex_index_title_for_renamed_threads() {
     let home = tempfile::tempdir().unwrap();
     let session_id = "01a06014-a7bf-7153-b2d9-f351af4ceb51";
@@ -528,16 +605,37 @@ fn pi_jsonl_round_trips_messages_and_tool_calls() {
     );
 
     let temp = tempfile::tempdir().unwrap();
-    let result = pi::write_session_to_root(&sample_session(SourceTool::Pi), temp.path()).unwrap();
-    assert!(result
-        .session_file
-        .to_string_lossy()
-        .contains("--C--proj--"));
-    let restored =
-        pi::parse_session(&std::fs::read_to_string(&result.session_file).unwrap()).unwrap();
+    let titled = CanonicalSession {
+        title: Some("复刻到 Pi 的名字".to_string()),
+        ..sample_session(SourceTool::Pi)
+    };
+    let result = pi::write_session_to_root(&titled, temp.path()).unwrap();
+    let payload = std::fs::read_to_string(&result.session_file).unwrap();
+    assert!(payload.contains("session_info"));
+    let restored = pi::parse_session(&payload).unwrap();
     assert_eq!(restored.source_tool, SourceTool::Pi);
     assert_eq!(restored.session_id, result.session_id);
-    assert_eq!(restored.messages, sample_session(SourceTool::Pi).messages);
+    assert_eq!(restored.title.as_deref(), Some("复刻到 Pi 的名字"));
+    assert_eq!(restored.messages, titled.messages);
+}
+
+#[test]
+fn pi_uses_the_latest_session_info_name() {
+    let fixture = [
+        json!({"type":"session","version":3,"id":"pi1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"C:/proj"}),
+        json!({"type":"session_info","id":"n1","parentId":null,"timestamp":"2026-01-01T00:00:01.000Z","name":"旧名字"}),
+        json!({"type":"message","id":"u1","parentId":"n1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"hello","timestamp":1767225602000_i64}}),
+        json!({"type":"session_info","id":"n2","parentId":"u1","timestamp":"2026-01-01T00:00:03.000Z","name":"  "}),
+        json!({"type":"session_info","id":"n3","parentId":"u1","timestamp":"2026-01-01T00:00:04.000Z","name":"新名字"}),
+    ]
+    .into_iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    let parsed = pi::parse_session(&fixture).unwrap();
+    assert_eq!(parsed.title.as_deref(), Some("新名字"));
+    assert_eq!(parsed.messages.len(), 1);
 }
 
 #[test]
@@ -546,6 +644,7 @@ fn opencode_database_round_trips_messages_and_tool_calls() {
     let database = temp.path().join("opencode.db");
     let mut session = sample_session(SourceTool::OpenCode);
     session.cwd = "F:/proj".to_string();
+    session.title = Some("复刻到 OpenCode 的名字".to_string());
 
     opencode::init_database(&database).unwrap();
     let result = opencode::write_session_to_database(&session, &database).unwrap();
@@ -558,6 +657,7 @@ fn opencode_database_round_trips_messages_and_tool_calls() {
     assert_eq!(restored.session_id, result.session_id);
     assert_eq!(restored.cwd, "F:/proj");
     assert_eq!(restored.created_at, "2026-01-01T00:00:00.000Z");
+    assert_eq!(restored.title.as_deref(), Some("复刻到 OpenCode 的名字"));
     assert_eq!(restored.messages.len(), 2);
     assert_eq!(restored.messages[0].text, "hello");
     assert_eq!(restored.messages[1].text, "running");
@@ -669,6 +769,7 @@ fn dsh_log_round_trips_messages_and_tool_calls() {
     let root = temp.path().join("sessions");
     let mut session = sample_session(SourceTool::Pi);
     session.cwd = "F:/proj".to_string();
+    session.title = Some("复刻到 DSH 的名字".to_string());
     let _dsh_home_guard = common::isolate_dsh_home(temp.path());
 
     let result = dsh::write_session_to_root(&session, &root).unwrap();
@@ -695,6 +796,7 @@ fn dsh_log_round_trips_messages_and_tool_calls() {
     assert_eq!(parsed.source_tool, SourceTool::Dsh);
     assert_eq!(parsed.session_id, result.session_id);
     assert_eq!(parsed.cwd, "F:/proj");
+    assert_eq!(parsed.title.as_deref(), Some("复刻到 DSH 的名字"));
     assert_eq!(parsed.messages.len(), 2);
     assert_eq!(parsed.messages[0].text, "hello");
     assert_eq!(parsed.messages[1].text, "running");
@@ -723,6 +825,9 @@ fn parses_dsh_session_logs() {
         json!({"type":"step/end","seq":8,"time":1767225600009_i64,"data":{"turn":1,"step":1}}),
         json!({"type":"turn/end","seq":9,"time":1767225600010_i64,"data":{"turn":1,"reason":{"kind":"completed"}}}),
         json!({"type":"text-chunks","seq":10,"time":1767225600011_i64,"data":{"turn":1,"step":1,"index":0,"chunks":["a","b"]}}),
+        json!({"type":"session/title","seq":11,"time":1767225600012_i64,"data":{"title":"较早的标题","messageSeqs":[],"source":{"kind":"fallback"}}}),
+        json!({"type":"session/title","seq":12,"time":1767225600013_i64,"data":{"title":"  ","messageSeqs":[],"source":{"kind":"fallback"}}}),
+        json!({"type":"session/title","seq":13,"time":1767225600014_i64,"data":{"title":"最终标题","messageSeqs":[],"source":{"kind":"user"}}}),
     ];
     let content = lines
         .iter()
@@ -737,7 +842,8 @@ fn parses_dsh_session_logs() {
     assert_eq!(session.session_id, "session-abc");
     assert_eq!(session.cwd, "C:/proj");
     assert_eq!(session.created_at, "2026-01-01T00:00:00.000Z");
-    assert_eq!(session.updated_at, "2026-01-01T00:00:00.011Z");
+    assert_eq!(session.updated_at, "2026-01-01T00:00:00.014Z");
+    assert_eq!(session.title.as_deref(), Some("最终标题"));
     assert_eq!(session.messages.len(), 2);
     assert_eq!(session.messages[0].text, "hello");
     assert_eq!(session.messages[1].text, "running");

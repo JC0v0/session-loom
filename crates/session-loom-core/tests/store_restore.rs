@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
+use serde_json::Value;
 use session_loom_core::{
-    adapters::{dsh, opencode, pi},
+    adapters::{claude, codex, dsh, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, CANONICAL_SCHEMA_VERSION},
     restore::{restore_session, sync_session, RestoreRoots},
     store::{ListFilter, Store},
@@ -562,6 +563,83 @@ fn manually_syncs_the_latest_snapshot_to_an_existing_pi_instance() {
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].tools, vec!["codex", "pi"]);
     assert_eq!(cards[0].instance_count, 3);
+}
+
+#[test]
+fn restored_sessions_keep_their_title_in_each_native_format() {
+    const TITLE: &str = "登录修复与回归测试";
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(&temp.path().join("store")).unwrap();
+    let mut session = sample();
+    session.title = Some(TITLE.to_string());
+    store.write_session(&session).unwrap();
+    let _dsh_guard = common::isolate_dsh_home(&temp.path().join("dsh-home"));
+    let roots = RestoreRoots {
+        codex: temp.path().join("codex"),
+        codex_home: temp.path().join("codex-home"),
+        claude: temp.path().join("claude"),
+        opencode: temp.path().join("opencode.db"),
+        dsh: temp.path().join("dsh"),
+        pi: temp.path().join("pi"),
+    };
+    opencode::init_database(&roots.opencode).unwrap();
+    for tool in [
+        SourceTool::Codex,
+        SourceTool::Claude,
+        SourceTool::OpenCode,
+        SourceTool::Dsh,
+        SourceTool::Pi,
+    ] {
+        let result = restore_session(&store, tool, Some("s1"), &roots);
+        assert!(result.ok, "{}: {}", tool.as_str(), result.message);
+    }
+
+    let rollout = walk_jsonl(&roots.codex);
+    assert_eq!(rollout.len(), 1);
+    let mut codex_session =
+        codex::parse_session(&fs::read_to_string(&rollout[0]).unwrap()).unwrap();
+    codex::attach_index_title(&mut codex_session, &roots.codex_home);
+    assert_eq!(codex_session.title.as_deref(), Some(TITLE), "Codex rollout");
+    let index = fs::read_to_string(roots.codex_home.join("session_index.jsonl")).unwrap();
+    let thread_names = index
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|record| {
+            record
+                .get("thread_name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        thread_names.iter().any(|name| name == TITLE),
+        "Codex session index: {thread_names:?}"
+    );
+
+    let claude_file = walk_jsonl(&roots.claude)
+        .into_iter()
+        .find(|path| path.file_name().and_then(|name| name.to_str()) != Some("history.jsonl"))
+        .expect("Claude session file");
+    let claude_session = claude::parse_session_file(&claude_file).unwrap();
+    assert_eq!(claude_session.title.as_deref(), Some(TITLE), "Claude file");
+
+    let opencode_sessions = opencode::parse_sessions(&roots.opencode).unwrap();
+    assert_eq!(opencode_sessions.len(), 1);
+    assert_eq!(
+        opencode_sessions[0].title.as_deref(),
+        Some(TITLE),
+        "OpenCode database"
+    );
+
+    let dsh_logs = dsh::session_log_files(&roots.dsh);
+    assert_eq!(dsh_logs.len(), 1);
+    let dsh_session = dsh::parse_session_file(&dsh_logs[0]).unwrap().unwrap();
+    assert_eq!(dsh_session.title.as_deref(), Some(TITLE), "DSH log");
+
+    let pi_files = walk_jsonl(&roots.pi);
+    assert_eq!(pi_files.len(), 1);
+    let pi_session = pi::parse_session(&fs::read_to_string(&pi_files[0]).unwrap()).unwrap();
+    assert_eq!(pi_session.title.as_deref(), Some(TITLE), "Pi session");
 }
 
 fn walk_jsonl(directory: &Path) -> Vec<std::path::PathBuf> {

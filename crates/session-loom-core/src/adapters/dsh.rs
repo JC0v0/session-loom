@@ -66,6 +66,7 @@ pub fn parse_session_file(path: &Path) -> Result<Option<CanonicalSession>, Strin
     let mut updated_ms = created_ms;
     let mut messages = vec![];
     let mut outputs = HashMap::new();
+    let mut title: Option<String> = None;
 
     for line in lines {
         let Ok(event) = serde_json::from_str::<Value>(line) else {
@@ -94,6 +95,14 @@ pub fn parse_session_file(path: &Path) -> Result<Option<CanonicalSession>, Strin
                     text,
                     tool_calls: vec![],
                 });
+            }
+            Some("session/title") => {
+                if let Some(value) = data.get("title").and_then(Value::as_str) {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        title = Some(value.to_string());
+                    }
+                }
             }
             Some("assistant/message") => {
                 if !surface_append(&event) {
@@ -176,7 +185,7 @@ pub fn parse_session_file(path: &Path) -> Result<Option<CanonicalSession>, Strin
         updated_at: format_timestamp(updated_ms.max(created_ms)),
         model_provider: None,
         model: None,
-        title: None,
+        title,
         messages,
     }))
 }
@@ -189,11 +198,24 @@ pub fn write_session_to_root(
     session: &CanonicalSession,
     root: &Path,
 ) -> Result<DshWriteResult, String> {
+    write_session_to_root_with_id(session, root, &format!("session-{}", Uuid::new_v4()))
+}
+
+pub fn write_session_to_root_with_id(
+    session: &CanonicalSession,
+    root: &Path,
+    session_id: &str,
+) -> Result<DshWriteResult, String> {
     fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let compression = detect_compression(root);
-    let session_id = format!("session-{}", Uuid::new_v4());
+    let session_id = session_id.to_string();
+    // DSH compares the stored session cwd with its canonical process cwd, so
+    // resolve symlinks (for example /tmp -> /private/tmp) before writing.
+    let cwd = fs::canonicalize(&session.cwd)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|_| session.cwd.clone());
     let directory = root
-        .join(project_key(&session.cwd))
+        .join(project_key(&cwd))
         .join(encode_segment(&session_id));
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
@@ -204,7 +226,7 @@ pub fn write_session_to_root(
         "version": SESSION_FORMAT_VERSION,
         "id": session_id,
         "createdAt": created_ms,
-        "cwd": session.cwd,
+        "cwd": cwd,
         "delegationDepth": 0
     });
     let events = render_events(session, created_ms.max(updated_ms));
@@ -235,7 +257,7 @@ pub fn write_session_to_root(
         LogCompression::None => "session.jsonl",
     });
     fs::write(&log_file, encoded).map_err(|error| error.to_string())?;
-    if let Err(error) = register_workspace(root, &session.cwd, &session_id) {
+    if let Err(error) = register_workspace(root, &cwd, &session_id) {
         let _ = fs::remove_dir_all(&directory);
         return Err(error);
     }
@@ -369,30 +391,46 @@ fn workspace_title(cwd: &str) -> String {
 }
 
 /// Groups rendered events into plaintext JSONL batches, one frame per
-/// turn, mirroring the harness append-batch framing.
+/// turn, mirroring the harness append-batch framing. Log-only events that a
+/// live harness appends on their own (for example `session/title`) get their
+/// own frame as well.
 fn event_frames(events: &[Value]) -> Result<Vec<String>, String> {
     let mut frames = vec![];
     let mut current_turn: Option<i64> = None;
     let mut current = String::new();
+    let flush = |frames: &mut Vec<String>, current: &mut String| {
+        if !current.is_empty() {
+            frames.push(std::mem::take(current));
+        }
+    };
     for event in events {
+        let standalone = matches!(
+            event.get("type").and_then(Value::as_str),
+            Some("session/title")
+        );
+        if standalone {
+            flush(&mut frames, &mut current);
+            current_turn = None;
+            frames.push(format!(
+                "{}\n",
+                serde_json::to_string(event).map_err(|error| error.to_string())?
+            ));
+            continue;
+        }
         let event_turn = event
             .get("data")
             .and_then(|data| data.get("turn"))
             .and_then(Value::as_i64);
         if let Some(turn) = event_turn {
             if current_turn != Some(turn) {
-                if !current.is_empty() {
-                    frames.push(std::mem::take(&mut current));
-                }
+                flush(&mut frames, &mut current);
                 current_turn = Some(turn);
             }
         }
         current.push_str(&serde_json::to_string(event).map_err(|error| error.to_string())?);
         current.push('\n');
     }
-    if !current.is_empty() {
-        frames.push(current);
-    }
+    flush(&mut frames, &mut current);
     Ok(frames)
 }
 
@@ -401,8 +439,9 @@ fn render_events(session: &CanonicalSession, base_ms: i64) -> Vec<Value> {
     let mut seq = 0i64;
     let mut time = base_ms;
     let mut turn = 0i64;
-    let mut step = 1i64;
+    let mut step = 0i64;
     let mut turn_open = false;
+    let mut step_open = false;
 
     let mut push = |events: &mut Vec<Value>, event_type: &str, data: Value, surface: bool| {
         let mut event = json!({ "type": event_type, "seq": seq, "time": time, "data": data });
@@ -417,6 +456,14 @@ fn render_events(session: &CanonicalSession, base_ms: i64) -> Vec<Value> {
     for message in &session.messages {
         match message.role {
             Role::User => {
+                if step_open {
+                    push(
+                        &mut events,
+                        "step/end",
+                        json!({ "turn": turn, "step": step }),
+                        false,
+                    );
+                }
                 if turn_open {
                     push(
                         &mut events,
@@ -428,7 +475,16 @@ fn render_events(session: &CanonicalSession, base_ms: i64) -> Vec<Value> {
                 turn += 1;
                 step = 1;
                 push(&mut events, "turn/start", json!({ "turn": turn }), false);
+                // DSH opens a step before the user surface; its v2-to-v3
+                // migration derives the required system head from step/start.
+                push(
+                    &mut events,
+                    "step/start",
+                    json!({ "turn": turn, "step": step }),
+                    false,
+                );
                 turn_open = true;
+                step_open = true;
                 let data = json!({
                     "id": Uuid::new_v4().to_string(),
                     "role": "user",
@@ -440,16 +496,19 @@ fn render_events(session: &CanonicalSession, base_ms: i64) -> Vec<Value> {
             Role::Assistant => {
                 if !turn_open {
                     turn += 1;
-                    step = 1;
+                    step = 0;
                     push(&mut events, "turn/start", json!({ "turn": turn }), false);
                     turn_open = true;
                 }
-                push(
-                    &mut events,
-                    "step/start",
-                    json!({ "turn": turn, "step": step }),
-                    false,
-                );
+                if !step_open {
+                    step += 1;
+                    push(
+                        &mut events,
+                        "step/start",
+                        json!({ "turn": turn, "step": step }),
+                        false,
+                    );
+                }
                 let mut content = vec![];
                 if !message.text.is_empty() {
                     content.push(json!({ "type": "text", "text": message.text }));
@@ -539,15 +598,39 @@ fn render_events(session: &CanonicalSession, base_ms: i64) -> Vec<Value> {
                     json!({ "turn": turn, "step": step }),
                     false,
                 );
-                step += 1;
+                step_open = false;
             }
         }
+    }
+    if step_open {
+        push(
+            &mut events,
+            "step/end",
+            json!({ "turn": turn, "step": step }),
+            false,
+        );
     }
     if turn_open {
         push(
             &mut events,
             "turn/end",
             json!({ "turn": turn, "reason": { "kind": "completed" } }),
+            false,
+        );
+    }
+    // DSH keeps session names as log-only `session/title` events (what its
+    // rename command appends). Writing the restored title keeps the session
+    // name in DSH's client lists instead of deriving one from the first
+    // message.
+    if let Some(title) = session.display_title() {
+        push(
+            &mut events,
+            "session/title",
+            json!({
+                "title": title,
+                "messageSeqs": [],
+                "source": { "kind": "user" }
+            }),
             false,
         );
     }
@@ -815,4 +898,64 @@ fn format_timestamp(millis: i64) -> String {
 
 fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canonical::{Message, Role, CANONICAL_SCHEMA_VERSION};
+
+    #[test]
+    fn generated_events_open_a_step_before_the_first_surface() {
+        let session = CanonicalSession {
+            schema_version: CANONICAL_SCHEMA_VERSION,
+            source_tool: SourceTool::Codex,
+            session_id: "fixture".into(),
+            cwd: "/tmp/fixture".into(),
+            created_at: "2026-11-01T00:00:00Z".into(),
+            updated_at: "2026-11-01T00:00:01Z".into(),
+            model_provider: None,
+            model: None,
+            title: None,
+            messages: vec![
+                Message {
+                    role: Role::User,
+                    text: "hello".into(),
+                    tool_calls: vec![],
+                },
+                Message {
+                    role: Role::Assistant,
+                    text: "world".into(),
+                    tool_calls: vec![],
+                },
+            ],
+        };
+        let events = render_events(&session, 0);
+        let types: Vec<_> = events
+            .iter()
+            .filter_map(|event| event.get("type").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            &types[..4],
+            &[
+                "turn/start",
+                "step/start",
+                "user/message",
+                "assistant/message"
+            ]
+        );
+        assert!(types.contains(&"step/end"));
+        assert_eq!(types.last(), Some(&"turn/end"));
+        let first_surface = events
+            .iter()
+            .find(|event| event.get("surfaceOp").is_some())
+            .unwrap();
+        let surface_index = events
+            .iter()
+            .position(|event| std::ptr::eq(event, first_surface))
+            .unwrap();
+        assert!(events[..surface_index]
+            .iter()
+            .any(|event| event["type"] == "step/start"));
+    }
 }

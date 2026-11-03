@@ -59,7 +59,18 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
     let mut by_id = HashMap::new();
     let mut ordered_ids = vec![];
     let mut updated_at = created_at.clone();
+    let mut session_name: Option<String> = None;
     for entry in entries.iter().skip(1) {
+        // Pi keeps the user-visible session name in `session_info` entries;
+        // the latest non-empty name wins, matching Pi's own reverse scan.
+        if entry.get("type").and_then(Value::as_str) == Some("session_info") {
+            if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                let name = name.trim();
+                if !name.is_empty() {
+                    session_name = Some(name.to_string());
+                }
+            }
+        }
         let Some(id) = entry.get("id").and_then(Value::as_str) else {
             continue;
         };
@@ -156,7 +167,7 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         updated_at,
         model_provider,
         model,
-        title: None,
+        title: session_name,
         messages,
     })
 }
@@ -168,7 +179,17 @@ pub fn write_session_to_root(
     session: &CanonicalSession,
     root: &Path,
 ) -> Result<PiWriteResult, String> {
-    let session_id = Uuid::new_v4().to_string();
+    let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    write_session_to_root_with_id(session, root, &Uuid::new_v4().to_string(), &timestamp)
+}
+
+pub fn write_session_to_root_with_id(
+    session: &CanonicalSession,
+    root: &Path,
+    session_id: &str,
+    timestamp: &str,
+) -> Result<PiWriteResult, String> {
+    let session_id = session_id.to_string();
     let directory = if std::env::var_os("PI_CODING_AGENT_SESSION_DIR").is_some() {
         root.to_path_buf()
     } else {
@@ -176,10 +197,9 @@ pub fn write_session_to_root(
     };
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
-    let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let file_timestamp = timestamp.replace([':', '.'], "-");
     let session_file = directory.join(format!("{file_timestamp}_{session_id}.jsonl"));
-    let payload = render_session(session, &session_id, &timestamp)?;
+    let payload = render_session(session, &session_id, timestamp)?;
     fs::write(&session_file, payload).map_err(|error| error.to_string())?;
     Ok(PiWriteResult {
         session_file,
@@ -444,6 +464,22 @@ fn render_session(
                 }));
                 parent_id = Some(result_id);
             }
+        }
+    }
+
+    // Pi names a session by appending a `session_info` entry, so a restored
+    // session keeps its display name in Pi's session list.
+    if let Some(title) = session.display_title() {
+        let name = title.replace(['\r', '\n'], " ").trim().to_string();
+        if !name.is_empty() {
+            let entry_id = next_entry_id(&mut used_ids);
+            entries.push(json!({
+                "type": "session_info",
+                "id": entry_id,
+                "parentId": parent_id,
+                "timestamp": timestamp,
+                "name": name
+            }));
         }
     }
 

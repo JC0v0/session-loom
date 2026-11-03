@@ -5,6 +5,11 @@ use session_loom_core::{
     daemon::{self, DaemonState},
     delete::{self, DeleteResult},
     paths,
+    project_migration::{
+        apply_migration, capture_clone_selection, load_preview, prepare_session_clone,
+        preview_migration, ApplyReport, EnvironmentRoots, MigrationRun, PreparedMigration,
+        PreviewDecision, PreviewPublic, RunStore, TargetChoices,
+    },
     restore::{restore_session, sync_session, RestoreResult, RestoreRoots},
     store::{ListFilter, SessionCard, Store},
     trash::{restore_from_trash, Trash, TrashEntry},
@@ -113,6 +118,107 @@ fn run_session_transfer(
         Some(&session_id),
         &RestoreRoots::from_environment(),
     )
+}
+
+fn migration_store() -> Result<(Store, RunStore), String> {
+    let store = store()?;
+    let runs = RunStore::new(store.root())?;
+    Ok((store, runs))
+}
+
+#[tauri::command]
+async fn sessions_clone_prepare(
+    session_id: String,
+    target: String,
+) -> Result<PreparedMigration, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (store, runs) = migration_store()?;
+        prepare_session_clone(
+            &store,
+            &runs,
+            &EnvironmentRoots::from_environment(),
+            &session_id,
+            SourceTool::from_str(&target)?,
+        )
+    })
+    .await
+    .map_err(|error| format!("clone context task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn sessions_clone_preview(
+    run_id: String,
+    assets: Vec<String>,
+    choices: Option<TargetChoices>,
+    decisions: Option<Vec<PreviewDecision>>,
+) -> Result<PreviewPublic, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (store, runs) = migration_store()?;
+        let mut run = runs.load(&run_id)?;
+        if run.session_ids.len() != 1 {
+            return Err("a session clone must select exactly one native instance".to_string());
+        }
+        let selected: std::collections::BTreeSet<_> = assets.iter().collect();
+        if selected.len() != assets.len() {
+            return Err("duplicate attachment selection".to_string());
+        }
+        let captured: std::collections::BTreeSet<_> =
+            run.assets.iter().map(|asset| &asset.asset.id).collect();
+        if run.sessions.is_empty() || selected != captured {
+            run = capture_clone_selection(&store, &runs, &run_id, &assets)?;
+        }
+        let target = run
+            .target
+            .clone()
+            .ok_or_else(|| "clone has no target".to_string())?;
+        let (_, preview) = preview_migration(
+            &runs,
+            &run,
+            &target,
+            &choices.unwrap_or_default(),
+            &decisions.unwrap_or_default(),
+        )?;
+        Ok(preview.public())
+    })
+    .await
+    .map_err(|error| format!("clone preview task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn migration_preview_get(run_id: String) -> Result<PreviewPublic, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_store, runs) = migration_store()?;
+        let run = runs.load(&run_id)?;
+        let summary = run
+            .preview
+            .ok_or_else(|| "clone has no preview".to_string())?;
+        Ok(load_preview(&runs, &run_id, &summary.id)?.public())
+    })
+    .await
+    .map_err(|error| format!("clone preview read failed: {error}"))?
+}
+
+#[tauri::command]
+async fn migration_apply(
+    run_id: String,
+    preview_id: Option<String>,
+) -> Result<ApplyReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (store, runs) = migration_store()?;
+        apply_migration(&store, &runs, &run_id, preview_id.as_deref())
+    })
+    .await
+    .map_err(|error| format!("migration apply task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn migration_status(run_id: String) -> Result<MigrationRun, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_store, runs) = migration_store()?;
+        runs.load(&run_id)
+    })
+    .await
+    .map_err(|error| format!("migration status task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -347,6 +453,11 @@ fn main() {
             let _ = window.emit("window-hidden", ());
         })
         .invoke_handler(tauri::generate_handler![
+            migration_apply,
+            migration_status,
+            migration_preview_get,
+            sessions_clone_prepare,
+            sessions_clone_preview,
             sessions_list,
             sessions_get,
             sessions_delete,
@@ -384,6 +495,10 @@ mod tests {
     use super::{
         cli_candidates, first_existing_cli, should_hide_on_close, tray_menu_action, TrayMenuAction,
     };
+    use session_loom_core::project_migration::{
+        preview_migration, resolve_project, MigrationRun, MigrationTarget, OpenCodeConfigVersion,
+        RunStore, TargetChoices, VersionSupport,
+    };
     use std::fs;
 
     #[test]
@@ -397,6 +512,45 @@ mod tests {
         assert_eq!(tray_menu_action("open"), TrayMenuAction::ShowWindow);
         assert_eq!(tray_menu_action("quit"), TrayMenuAction::Quit);
         assert_eq!(tray_menu_action("unknown"), TrayMenuAction::Ignore);
+    }
+
+    #[test]
+    fn migration_preview_rejects_relative_project_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let runs = RunStore::new(temp.path()).unwrap();
+        let run = MigrationRun::new(
+            resolve_project(temp.path().to_str().unwrap()),
+            vec!["s1".into()],
+        )
+        .unwrap();
+        let target = MigrationTarget {
+            tool: session_loom_core::canonical::SourceTool::Claude,
+            project_root: std::path::PathBuf::from("relative/target"),
+        };
+        let error =
+            preview_migration(&runs, &run, &target, &TargetChoices::default(), &[]).unwrap_err();
+        assert!(error.contains("absolute"), "{error}");
+    }
+
+    #[test]
+    fn migration_target_choices_accept_partial_ipc_payloads() {
+        let choices: TargetChoices = serde_json::from_value(serde_json::json!({
+            "projectTrusted": true,
+            "environmentVariables": ["FIXTURE_TOKEN"]
+        }))
+        .unwrap();
+        assert!(choices.opencode_version.is_none());
+        assert!(choices.pi_mcp.is_none());
+        assert!(choices.project_trusted);
+        assert_eq!(choices.environment_variables, vec!["FIXTURE_TOKEN"]);
+        let value = serde_json::to_value(TargetChoices {
+            opencode_version: Some(OpenCodeConfigVersion::V2),
+            pi_mcp: Some(VersionSupport::Unsupported),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(value["opencodeVersion"], "v2");
+        assert_eq!(value["piMcp"], "unsupported");
     }
 
     #[test]

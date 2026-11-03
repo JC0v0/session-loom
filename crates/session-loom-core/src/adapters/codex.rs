@@ -292,7 +292,15 @@ pub fn register_thread(
         .find(|message| message.role == Role::User && !message.text.trim().is_empty())
         .map(|message| message.text.trim().to_string())
         .unwrap_or_default();
-    let title = first_user_message.chars().take(120).collect::<String>();
+    // The thread title is what Codex's resume list shows. Preserve the
+    // source session's own title and only fall back to the first message.
+    let title = session
+        .display_title()
+        .map(str::to_string)
+        .unwrap_or_else(|| first_user_message.clone())
+        .chars()
+        .take(120)
+        .collect::<String>();
     let provider = session
         .model_provider
         .as_deref()
@@ -385,25 +393,36 @@ pub fn register_session_index(
     codex_home: &Path,
 ) -> Result<(), String> {
     let index = codex_home.join("session_index.jsonl");
+    // Codex rewrites this index on rename and folds it last-wins, so the
+    // restored entry carries the real session title.
+    let thread_name = session
+        .display_title()
+        .map(|title| title.chars().take(120).collect::<String>())
+        .or_else(|| {
+            session
+                .messages
+                .iter()
+                .find(|message| message.role == Role::User && !message.text.trim().is_empty())
+                .map(|message| message.text.trim().chars().take(120).collect::<String>())
+        })
+        .unwrap_or_else(|| "Restored session".to_string());
     if let Ok(contents) = fs::read_to_string(&index) {
-        let already_registered = contents.lines().any(|line| {
-            serde_json::from_str::<Value>(line)
-                .ok()
-                .and_then(|entry| entry.get("id").and_then(Value::as_str).map(str::to_string))
-                .as_deref()
-                == Some(session_id)
-        });
-        if already_registered {
+        let current = contents
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|entry| entry.get("id").and_then(Value::as_str) == Some(session_id))
+            .filter_map(|entry| {
+                entry
+                    .get("thread_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .next_back();
+        if current.as_deref() == Some(thread_name.as_str()) {
             return Ok(());
         }
     }
     fs::create_dir_all(codex_home).map_err(|error| error.to_string())?;
-    let thread_name = session
-        .messages
-        .iter()
-        .find(|message| message.role == Role::User && !message.text.trim().is_empty())
-        .map(|message| message.text.trim().chars().take(120).collect::<String>())
-        .unwrap_or_else(|| "Restored session".to_string());
     let entry = json!({
         "id": session_id,
         "thread_name": thread_name,

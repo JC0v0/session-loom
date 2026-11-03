@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "database": {
+      "command": "fixture-mcp",
+      "args": ["--project", "."],
+      "env": { "DATABASE_TOKEN": "${FIXTURE_DATABASE_TOKEN}" }
+    }
+  }
+}

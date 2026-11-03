@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "database": {
+      "type": "stdio",
+      "command": "fixture-mcp",
+      "args": ["--project", "."]
+    }
+  }
+}

@@ -3,6 +3,7 @@ pub mod canonical;
 pub mod daemon;
 pub mod delete;
 pub mod paths;
+pub mod project_migration;
 pub mod restore;
 pub mod store;
 pub mod trash;

@@ -1,0 +1,10 @@
+# Synthetic profile overlay; expressions must remain data during migration.
+- insert:
+    - id: fixture-database
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: database
+        transport: stdio
+        command: fixture-mcp
+        args: []
+        cwd: !!js process.cwd()

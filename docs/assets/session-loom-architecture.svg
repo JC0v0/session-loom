@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
   <title id="title">Session-Loom architecture</title>
-  <desc id="desc">Five AI coding tools mirror sessions into a canonical SQLite store, then restore them into any supported tool.</desc>
+  <desc id="desc">Five AI coding tools mirror sessions into a canonical SQLite store, restore them into any supported tool, and optionally migrate project memory, skills, MCP connections, and scripts with a diff preview.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0b1020"/>
@@ -91,5 +91,10 @@
     <text x="1074" y="641" fill="#f7f8fc" font-size="21" font-weight="600">Pi coding agent</text>
   </g>
 
-  <text x="76" y="724" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15">Local-first · project-aware · no prompt replay · native session formats</text>
+  <g filter="url(#shadow)">
+    <rect x="76" y="688" width="1288" height="42" rx="21" fill="#202744" stroke="#4c587c"/>
+  </g>
+  <text x="100" y="715" fill="#ffbd5a" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="1.5">PROJECT ENVIRONMENT MIGRATION</text>
+  <text x="356" y="715" fill="#aeb7d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">project / global selection · native render · diff &amp; conflict decisions · per-item readiness evidence</text>
+  <text x="76" y="752" fill="#7f8ba8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Local-first · project-aware · no prompt replay · native session formats · no automatic scripts or dependency installs</text>
 </svg>

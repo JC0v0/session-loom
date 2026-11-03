@@ -305,6 +305,49 @@ impl Store {
         }
     }
 
+    /// Project selection must enumerate native instances, not merged cards.
+    /// Listing metadata deliberately never reads or deserializes chat bodies.
+    pub fn project_sessions(
+        &self,
+    ) -> Result<Vec<crate::project_migration::ProjectSession>, String> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT s.session_id,
+                        COALESCE(NULLIF(s.conversation_id, ''), s.session_id),
+                        s.source_tool, s.cwd, COALESCE(summary.title, ''), s.updated_at
+                 FROM sessions s
+                 LEFT JOIN session_summaries summary ON summary.session_id = s.session_id
+                 ORDER BY s.updated_at DESC, s.session_id",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                let source_tool: String = row.get(2)?;
+                let source_tool = source_tool.parse().map_err(|message: String| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            message,
+                        )),
+                    )
+                })?;
+                Ok(crate::project_migration::ProjectSession {
+                    session_id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    source_tool,
+                    cwd: row.get(3)?,
+                    title: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        rows.map(|row| row.map_err(|error| error.to_string()))
+            .collect()
+    }
+
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
         let mut connection = self.connection()?;
         let transaction = connection

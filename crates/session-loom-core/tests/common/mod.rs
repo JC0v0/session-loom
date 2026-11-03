@@ -46,3 +46,27 @@ pub fn isolate_dsh_home(root: &Path) -> DshHomeGuard {
         _lock: lock,
     }
 }
+
+pub fn migration_session(
+    id: &str,
+    cwd: &Path,
+    tool: session_loom_core::canonical::SourceTool,
+) -> session_loom_core::canonical::CanonicalSession {
+    use session_loom_core::canonical::{CanonicalSession, Message, Role, CANONICAL_SCHEMA_VERSION};
+    CanonicalSession {
+        schema_version: CANONICAL_SCHEMA_VERSION,
+        source_tool: tool,
+        session_id: id.to_string(),
+        cwd: cwd.to_string_lossy().to_string(),
+        created_at: "2026-11-02T00:00:00Z".to_string(),
+        updated_at: "2026-11-02T00:00:00Z".to_string(),
+        model_provider: None,
+        model: None,
+        title: Some(id.to_string()),
+        messages: vec![Message {
+            role: Role::User,
+            text: "synthetic project migration fixture".to_string(),
+            tool_calls: vec![],
+        }],
+    }
+}

@@ -1,0 +1,7 @@
+[mcp_servers.database]
+command = "fixture-mcp"
+args = ["--project", "."]
+
+[mcp_servers.database.env]
+DATABASE_TOKEN = "fixture-only-do-not-copy"
+PUBLIC_MODE = "test"

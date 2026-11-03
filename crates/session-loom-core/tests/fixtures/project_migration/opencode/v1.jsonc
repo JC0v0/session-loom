@@ -1,0 +1,13 @@
+{
+  // Synthetic V1 fixture. No network service or credentials.
+  "mcp": {
+    "database": {
+      "type": "local",
+      "command": ["fixture-mcp", "--project", "."],
+      "enabled": true,
+    },
+  },
+  "command": {
+    "review": { "template": "Review $ARGUMENTS", "description": "Fixture review" },
+  },
+}

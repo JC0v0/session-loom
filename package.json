@@ -13,6 +13,8 @@
     "dist:mac": "tauri build --bundles app,dmg && node scripts/notarize-dmg.cjs",
     "dist:mac:notarize": "node scripts/notarize-dmg.cjs",
     "test": "cargo test --workspace",
+    "test:ui": "node --test ui/tests/session-clone.test.mjs",
+    "test:all": "npm test && npm run test:ui",
     "release:prepare": "node scripts/prepare-release.cjs"
   },
   "devDependencies": {

@@ -50,6 +50,8 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
     let mut created_at = String::new();
     let mut updated_at = String::new();
     let mut summary_title = String::new();
+    let mut custom_title = String::new();
+    let mut ai_title = String::new();
 
     for line in jsonl.lines().filter(|line| !line.trim().is_empty()) {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -69,10 +71,25 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         }
 
         let record_type = record.get("type").and_then(Value::as_str);
-        if record_type == Some("summary") {
-            if let Some(value) = record.get("summary").and_then(Value::as_str) {
-                summary_title = value.to_string();
+        match record_type {
+            // Claude Code's own title records, written by `/rename` and by
+            // its title generator. They are the visible session name.
+            Some("custom-title") => {
+                if let Some(value) = record.get("customTitle").and_then(Value::as_str) {
+                    custom_title = value.to_string();
+                }
             }
+            Some("ai-title") => {
+                if let Some(value) = record.get("aiTitle").and_then(Value::as_str) {
+                    ai_title = value.to_string();
+                }
+            }
+            Some("summary") => {
+                if let Some(value) = record.get("summary").and_then(Value::as_str) {
+                    summary_title = value.to_string();
+                }
+            }
+            _ => {}
         }
         if !matches!(record_type, Some("user" | "assistant")) {
             continue;
@@ -148,11 +165,12 @@ pub fn parse_session(jsonl: &str) -> Result<CanonicalSession, String> {
         updated_at,
         model_provider: None,
         model: None,
-        title: if summary_title.is_empty() {
-            None
-        } else {
-            Some(summary_title)
-        },
+        // Claude Code's visible session name wins over compaction summaries,
+        // which the parser used before the dedicated title records existed.
+        title: [custom_title, ai_title, summary_title]
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .find(|value| !value.is_empty()),
         messages,
     })
 }
@@ -161,7 +179,15 @@ pub fn write_session_to_root(
     session: &CanonicalSession,
     root: &Path,
 ) -> Result<ClaudeWriteResult, String> {
-    let session_id = Uuid::new_v4().to_string();
+    write_session_to_root_with_id(session, root, &Uuid::new_v4().to_string())
+}
+
+pub fn write_session_to_root_with_id(
+    session: &CanonicalSession,
+    root: &Path,
+    session_id: &str,
+) -> Result<ClaudeWriteResult, String> {
+    let session_id = session_id.to_string();
     let project = encode_claude_project(&session.cwd);
     let directory = root.join("projects").join(project);
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -185,6 +211,16 @@ pub fn write_session_to_root(
 
 fn render_session(session: &CanonicalSession, session_id: &str) -> Result<String, String> {
     let mut records = vec![json!({ "type": "mode", "mode": "normal", "sessionId": session_id })];
+    // Claude Code stores the visible session name as a `custom-title` record
+    // (same shape `/rename` writes), so a restored session keeps its name in
+    // the `--resume` list instead of reverting to the first message.
+    if let Some(title) = session.display_title() {
+        records.push(json!({
+            "type": "custom-title",
+            "customTitle": title,
+            "sessionId": session_id
+        }));
+    }
     for message in &session.messages {
         let mut content = vec![];
         if !message.text.is_empty() {
@@ -240,6 +276,24 @@ fn render_session(session: &CanonicalSession, session_id: &str) -> Result<String
 }
 
 fn append_history(root: &Path, session: &CanonicalSession, session_id: &str) -> Result<(), String> {
+    let history_path = root.join("history.jsonl");
+    if let Ok(contents) = fs::read_to_string(&history_path) {
+        let already_registered = contents.lines().any(|line| {
+            serde_json::from_str::<Value>(line)
+                .ok()
+                .and_then(|entry| {
+                    entry
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .as_deref()
+                == Some(session_id)
+        });
+        if already_registered {
+            return Ok(());
+        }
+    }
     let display = session
         .messages
         .iter()
@@ -259,7 +313,7 @@ fn append_history(root: &Path, session: &CanonicalSession, session_id: &str) -> 
     let mut history = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(root.join("history.jsonl"))
+        .open(&history_path)
         .map_err(|error| error.to_string())?;
     writeln!(
         history,

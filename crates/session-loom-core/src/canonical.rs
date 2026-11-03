@@ -79,8 +79,10 @@ pub struct CanonicalSession {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Source tool's own session title when the tool maintains one (for
-    /// example Claude's summary lines or OpenCode's generated title). The
-    /// mirror refreshes it together with the content on every re-mirror.
+    /// example Codex's thread name, Claude's custom title, OpenCode's
+    /// generated title, DSH's `session/title` event or Pi's `session_info`).
+    /// The mirror refreshes it together with the content on every re-mirror,
+    /// and adapters write it back into the target's native title field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub messages: Vec<Message>,
@@ -117,6 +119,16 @@ impl PortabilityReport {
 }
 
 impl CanonicalSession {
+    /// The session's own display title, trimmed and non-empty. Adapters use
+    /// this to write the title into their native format instead of replacing
+    /// it with a snippet of the first user message.
+    pub fn display_title(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+    }
+
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|error| error.to_string())
     }
@@ -144,7 +156,11 @@ impl CanonicalSession {
             .messages
             .iter()
             .any(|message| !message.tool_calls.is_empty());
-        let mut preserved = vec!["用户和助手文本".to_string(), "工作目录和时间戳".to_string()];
+        let mut preserved = vec![
+            "用户和助手文本".to_string(),
+            "工作目录和时间戳".to_string(),
+            "会话名称".to_string(),
+        ];
         let mut degraded = vec![];
 
         if has_tool_calls {

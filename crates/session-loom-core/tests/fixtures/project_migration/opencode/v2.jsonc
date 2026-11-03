@@ -1,0 +1,15 @@
+{
+  // Synthetic V2 fixture. Its namespaces differ from V1.
+  "mcp": {
+    "servers": {
+      "database": {
+        "type": "local",
+        "command": ["fixture-mcp", "--project", "."],
+        "disabled": false,
+      },
+    },
+  },
+  "commands": {
+    "review": { "template": "Review $ARGUMENTS", "description": "Fixture review" },
+  },
+}

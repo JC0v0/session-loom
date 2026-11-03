@@ -98,6 +98,16 @@ pub fn write_session_to_database(
     session: &CanonicalSession,
     database: &Path,
 ) -> Result<OpenCodeWriteResult, String> {
+    let created_ms = parse_timestamp_ms(&session.created_at).unwrap_or_else(now_ms);
+    let session_id = generate_id("ses", created_ms);
+    write_session_to_database_with_id(session, database, &session_id)
+}
+
+pub fn write_session_to_database_with_id(
+    session: &CanonicalSession,
+    database: &Path,
+    session_id: &str,
+) -> Result<OpenCodeWriteResult, String> {
     if let Some(parent) = database
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -126,7 +136,26 @@ pub fn write_session_to_database(
     let project_id = resolve_project_id(&connection, &session.cwd)?;
     ensure_project(&connection, &project_id, &session.cwd)?;
 
-    let session_id = generate_id("ses", created_ms);
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT directory FROM session WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if let Some(existing) = existing {
+        if existing != directory {
+            return Err(format!(
+                "OpenCode session id {session_id} already belongs to another directory"
+            ));
+        }
+        return Ok(OpenCodeWriteResult {
+            session_id: session_id.to_string(),
+            database: database.to_path_buf(),
+        });
+    }
+    let session_id = session_id.to_string();
     let title = session_title(session, created_ms);
     let slug = random_slug();
 
@@ -563,6 +592,18 @@ fn ensure_project(connection: &Connection, project_id: &str, cwd: &str) -> Resul
 }
 
 fn session_title(session: &CanonicalSession, created_ms: i64) -> String {
+    // OpenCode shows a generated title in its session list; keep the
+    // restored title instead of deriving a new one from the first message.
+    if let Some(title) = session.display_title() {
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !title.is_empty() {
+            return if title.chars().count() <= 120 {
+                title
+            } else {
+                format!("{}…", title.chars().take(120).collect::<String>())
+            };
+        }
+    }
     let first_user = session
         .messages
         .iter()
@@ -603,7 +644,7 @@ fn random_slug() -> String {
 
 /// Generates an OpenCode-style identifier (ses_, msg_, prt_, tool_) with a
 /// monotonic timestamp prefix followed by random entropy.
-fn generate_id(prefix: &str, timestamp_ms: i64) -> String {
+pub(crate) fn generate_id(prefix: &str, timestamp_ms: i64) -> String {
     const BASE32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     let mut value = timestamp_ms.max(0) as u64;
     let mut timestamp = String::with_capacity(10);
