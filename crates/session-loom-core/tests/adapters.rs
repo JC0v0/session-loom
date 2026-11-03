@@ -1,7 +1,7 @@
 use rusqlite::params;
 use serde_json::{json, Value};
 use session_loom_core::{
-    adapters::{claude, codex, dsh, opencode, pi},
+    adapters::{claude, codex, dsh, encode_claude_project, opencode, pi},
     canonical::{CanonicalSession, Message, Role, SourceTool, ToolCall, CANONICAL_SCHEMA_VERSION},
 };
 
@@ -142,6 +142,22 @@ fn codex_registration_falls_back_to_the_first_message_without_a_title() {
     let index = std::fs::read_to_string(home.path().join("session_index.jsonl")).unwrap();
     let record: Value = serde_json::from_str(index.lines().next().unwrap()).unwrap();
     assert_eq!(record["thread_name"], "hello");
+}
+
+#[test]
+fn claude_project_encoding_strips_windows_verbatim_prefixes() {
+    assert_eq!(
+        encode_claude_project(r"\\?\C:\Users\Example\project"),
+        "C--Users-Example-project"
+    );
+    assert_eq!(
+        encode_claude_project(r"C:\Users\Example\project"),
+        "C--Users-Example-project"
+    );
+    assert_eq!(
+        encode_claude_project("/Users/example/project"),
+        "-Users-example-project"
+    );
 }
 
 #[test]

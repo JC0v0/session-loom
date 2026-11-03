@@ -64,7 +64,12 @@ pub fn decode_claude_project(encoded: &str) -> String {
 }
 
 pub fn encode_claude_project(cwd: &str) -> String {
-    cwd.chars()
+    // Windows canonicalization adds a `\\?\` verbatim prefix. Claude Code
+    // receives the plain spelling and never puts a `?` in its project
+    // directory, so strip the prefix before encoding.
+    let normalized = cwd.strip_prefix(r"\\?\").unwrap_or(cwd);
+    normalized
+        .chars()
         .map(|character| match character {
             ':' | '\\' | '/' => '-',
             other => other,
