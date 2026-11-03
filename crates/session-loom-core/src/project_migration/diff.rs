@@ -181,8 +181,7 @@ fn sensitive_key(prefix: &str) -> bool {
         .split(|character: char| {
             character.is_whitespace() || matches!(character, '"' | '\'' | ':' | '=')
         })
-        .filter(|segment| !segment.is_empty())
-        .next_back()
+        .rfind(|segment| !segment.is_empty())
         .unwrap_or("")
         .to_ascii_lowercase()
         .chars()

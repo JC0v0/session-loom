@@ -196,10 +196,10 @@ pub(crate) fn program_available(command: &str, search_path: &[PathBuf]) -> bool 
                 .unwrap_or_else(|| ".EXE;.CMD;.BAT;.COM".into())
                 .to_string_lossy()
                 .to_string();
-            return extensions
+            extensions
                 .split(';')
                 .filter(|extension| !extension.is_empty())
-                .any(|extension| directory.join(format!("{command}{extension}")).is_file());
+                .any(|extension| directory.join(format!("{command}{extension}")).is_file())
         }
         #[cfg(not(windows))]
         false

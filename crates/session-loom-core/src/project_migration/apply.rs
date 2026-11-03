@@ -585,6 +585,10 @@ fn backup_target(apply_directory: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8], executable: bool) -> Result<(), String> {
+    // Executable bits only exist on Unix; Windows runs scripts through their
+    // registered interpreter, so the flag has no effect there.
+    #[cfg(not(unix))]
+    let _ = executable;
     let parent = path
         .parent()
         .ok_or_else(|| "target path has no parent".to_string())?;
