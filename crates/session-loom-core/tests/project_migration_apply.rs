@@ -2,9 +2,9 @@ use session_loom_core::{
     canonical::SourceTool,
     project_migration::{
         apply_preview, capture_selection, create_preview, discover_environment, resolve_project,
-        select_project_sessions, AssetKind, DiscoveryOptions, EnvironmentRoots, MigrationRun,
-        MigrationTarget, OpenCodeConfigVersion, Readiness, RunState, RunStore, SelectedSession,
-        TargetEnvironment, VersionSupport,
+        select_project_sessions, DiscoveryOptions, EnvironmentRoots, MigrationRun, MigrationTarget,
+        OpenCodeConfigVersion, Readiness, RunState, RunStore, SelectedSession, TargetEnvironment,
+        VersionSupport,
     },
     restore::RestoreRoots,
     store::Store,
@@ -382,7 +382,7 @@ fn a_file_write_failure_marks_that_item_and_keeps_the_source() {
     let report = report.unwrap();
     assert_eq!(report.state, RunState::Partial);
     assert!(report.items.iter().any(|item| {
-        matches!(item.item_id.as_str(), value if preview.items.iter().any(|rendered| rendered.kind == AssetKind::Skill && rendered.item_id == value))
+        matches!(item.item_id.as_str(), value if preview.items.iter().any(|rendered| rendered.kind == session_loom_core::project_migration::AssetKind::Skill && rendered.item_id == value))
             && item.readiness == Readiness::Failed
     }));
     assert!(fixture.target_project.join("CLAUDE.md").is_file());
@@ -536,7 +536,6 @@ fn every_native_target_uses_the_pinned_session_id() {
 
 #[test]
 fn an_index_registration_failure_recovers_without_a_second_rollout() {
-    use std::os::unix::fs::PermissionsExt;
     let fixture = Fixture::new(SourceTool::Codex);
     let (run, preview, _environment) = fixture.previewed(SourceTool::Codex);
     fs::create_dir_all(fixture.restore_roots.codex_home.join("session_index.jsonl")).unwrap();
@@ -555,7 +554,6 @@ fn an_index_registration_failure_recovers_without_a_second_rollout() {
     let index = fixture.restore_roots.codex_home.join("session_index.jsonl");
     fs::remove_dir(&index).unwrap();
     std::fs::write(&index, "").unwrap();
-    fs::set_permissions(&index, fs::Permissions::from_mode(0o600)).unwrap();
 
     let recovered = apply_preview(
         &fixture.sessions,
