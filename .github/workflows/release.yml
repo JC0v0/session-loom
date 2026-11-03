@@ -227,6 +227,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          # The annotated tag body is the release note source; a shallow
+          # checkout leaves no local tag ref and publishes an empty body.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Extract tag release notes
         run: git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" > release-notes.txt
